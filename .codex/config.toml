@@ -1,0 +1,5 @@
+# Available subagent threads; the principal is excluded from this limit.
+# Host limits, project trust, and the installed Codex version still apply.
+[agents]
+enabled = true
+max_concurrent_threads_per_session = 29
