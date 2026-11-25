@@ -9,6 +9,8 @@
 #include <AK/JsonObject.h>
 #include <AK/JsonValue.h>
 #include <AK/LexicalPath.h>
+#include <AK/Random.h>
+#include <AK/ScopeGuard.h>
 #include <AK/Utf16String.h>
 #include <LibCore/Directory.h>
 #include <LibCore/File.h>
@@ -23,6 +25,11 @@
 
 #if defined(AK_OS_LINUX)
 #    include <linux/magic.h>
+#endif
+
+#if defined(AK_OS_LINUX)
+#    include <fcntl.h>
+#    include <unistd.h>
 #endif
 
 namespace WebView {
@@ -112,11 +119,50 @@ ErrorOr<JsonObject> read_json_file(ByteString const& path)
 
 ErrorOr<void> write_json_file(ByteString const& path, JsonValue const& value)
 {
+    if (path.contains('\0'))
+        return Error::from_errno(EINVAL);
     auto directory = LexicalPath { path }.parent();
-    TRY(Core::Directory::create(directory, Core::Directory::CreateDirectories::Yes));
+    auto parent = TRY(Core::Directory::create(directory, Core::Directory::CreateDirectories::Yes));
 
+#if !defined(AK_OS_LINUX)
     auto file = TRY(Core::File::open(path, Core::File::OpenMode::Write));
     TRY(file->write_until_depleted(value.serialized()));
+#else
+    auto filename = LexicalPath::basename(path);
+    auto existing = Core::System::fstatat(parent.fd(), filename, AT_SYMLINK_NOFOLLOW);
+    if (existing.is_error()) {
+        if (!existing.error().is_errno() || existing.error().code() != ENOENT)
+            return existing.release_error();
+    } else {
+        if (!S_ISREG(existing.value().st_mode))
+            return Error::from_errno(EINVAL);
+        if (existing.value().st_uid != geteuid())
+            return Error::from_errno(EACCES);
+        // Check write access without truncating the original or following a replaced link.
+        auto original = TRY(parent.open(filename, Core::File::OpenMode::Write | Core::File::OpenMode::Append | Core::File::OpenMode::DontCreate | Core::File::OpenMode::NoFollow | Core::File::OpenMode::Nonblocking));
+        auto opened = TRY(original->stat());
+        if (!S_ISREG(opened.st_mode) || opened.st_dev != existing.value().st_dev || opened.st_ino != existing.value().st_ino)
+            return Error::from_errno(EAGAIN);
+    }
+
+    auto temporary_name = ByteString::formatted(".ladybird-json-{}.tmp", generate_random_uuid());
+    // Restrict the Linux temporary file to the owner, including inherited POSIX ACL entries.
+    auto file = TRY(parent.open(temporary_name, Core::File::OpenMode::Write | Core::File::OpenMode::MustBeNew | Core::File::OpenMode::NoFollow, 0600));
+    ArmedScopeGuard remove_temporary = [&] { (void)unlinkat(parent.fd(), temporary_name.characters(), 0); };
+    auto fd = file->leak_fd();
+    ArmedScopeGuard close_temporary = [&] { (void)Core::System::close(fd); };
+    TRY(file->write_until_depleted(value.serialized()));
+    if (fsync(fd) < 0)
+        return Error::from_errno(errno);
+    auto close_result = Core::System::close(fd);
+    close_temporary.disarm();
+    TRY(close_result);
+    TRY(Core::System::renameat(parent.fd(), temporary_name, parent.fd(), filename));
+    remove_temporary.disarm();
+    // Publication has completed; a sync failure affects durability, not the caller's saved state.
+    if (fsync(parent.fd()) < 0)
+        warnln("Unable to sync JSON file directory: {}", Error::from_errno(errno));
+#endif
 
     return {};
 }
