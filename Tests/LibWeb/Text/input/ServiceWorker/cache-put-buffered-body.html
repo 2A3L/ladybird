@@ -1,0 +1,60 @@
+<!doctype html>
+<script src="../include.js"></script>
+<script>
+    promiseTest(async () => {
+        const cache = await caches.open("cache-put-buffered-body");
+        const url = new URL("/cache-put-buffered-body", location.href).href;
+        await cache.put(url, new Response("original"));
+
+        let finish;
+        const stream = new ReadableStream({
+            start(controller) {
+                controller.enqueue(new Uint8Array([0, 128, 255]));
+                finish = () => {
+                    controller.enqueue(new Uint8Array([42]));
+                    controller.close();
+                };
+            },
+        });
+        const response = new Response(stream, { headers: { "X-Example": "before" } });
+        const write = cache.put(url, response);
+        println(`original body locked while reading: ${response.body.locked}`);
+        response.headers.set("X-Example", "after");
+        println(`old response retained until read completes: ${(await (await cache.match(url)).text()) === "original"}`);
+        finish();
+        await write;
+        println(`original body used: ${response.bodyUsed}`);
+        const first = await cache.match(url);
+        const second = await cache.match(url);
+        println(`headers copied before reading: ${first.headers.get("X-Example") === "before"}`);
+        println(`binary body retained: ${[...new Uint8Array(await first.arrayBuffer())].join(",") === "0,128,255,42"}`);
+        println(`body can be read again: ${[...new Uint8Array(await second.arrayBuffer())].join(",") === "0,128,255,42"}`);
+
+        let fail;
+        const failing = new ReadableStream({ start(controller) { fail = () => controller.error(new Error("failed body")); } });
+        const failedWrite = cache.put(url, new Response(failing));
+        fail();
+        try {
+            await failedWrite;
+            println("failed body unexpectedly stored");
+        } catch {
+            println("failed body rejected: true");
+        }
+        println(`failed write kept previous entry: ${[...new Uint8Array(await (await cache.match(url)).arrayBuffer())].join(",") === "0,128,255,42"}`);
+
+        const locked = new Response("locked");
+        const reader = locked.body.getReader();
+        try {
+            await cache.put(url, locked);
+            println("locked body unexpectedly stored");
+        } catch (error) {
+            println(`locked body rejected: ${error.name}`);
+        }
+        reader.releaseLock();
+
+        const empty = new Response(null);
+        await cache.put(url, empty);
+        println(`null body preserved: ${(await cache.match(url)).body === null && !empty.bodyUsed}`);
+        await caches.delete("cache-put-buffered-body");
+    });
+</script>

@@ -497,45 +497,32 @@ void Cache::put(JS::Realm& realm, Fetch::RequestInfo request, GC::Ref<Fetch::Res
         }
     }
 
-    // 9. Let clonedResponse be a clone of innerResponse.
-    auto cloned_response = inner_response->clone(realm);
-
-    // 10. Let bodyReadPromise be a promise resolved with undefined.
-    auto body_read_promise = WebIDL::create_resolved_promise(realm, JS::js_undefined());
-
-    // 11. If innerResponse’s body is non-null, run these substeps:
+    // 9-11. Copy the response and read its body before committing the operation.
+    auto body_read_promise = WebIDL::create_promise(realm);
     if (auto body = inner_response->body()) {
-        // 1. Let stream be innerResponse’s body’s stream.
-        auto stream = body->stream();
-
-        // 2. Let reader be the result of getting a reader for stream.
-        auto reader = MUST(stream->get_a_reader());
-
-        // 3. Set bodyReadPromise to the result of reading all bytes from reader.
-        body_read_promise = reader->read_all_bytes_deprecated();
+        auto record = inner_response->record()->clone();
+        auto reader = MUST(body->stream()->get_a_reader());
+        auto success = GC::create_function(GC::Heap::the(), GC::captures(realm, body_read_promise, move(record)), [](auto& realm, auto& body_read_promise, auto& record, ByteBuffer bytes) {
+            record->unsafe_response()->set_body(Fetch::Infrastructure::ResponseBody::from_bytes(Core::ImmutableBytes::adopt(move(bytes))));
+            WebIDL::resolve_promise(body_read_promise, Fetch::Infrastructure::ResponseView::create(realm, move(record)));
+        });
+        auto failure = GC::create_function(GC::Heap::the(), GC::captures(body_read_promise), [](auto& body_read_promise, JS::Value error) {
+            WebIDL::reject_promise(body_read_promise, error);
+        });
+        reader->read_all_bytes(success, failure);
+    } else {
+        // shortcut: Opaque bodies remain stream-backed, normalize them when filtered responses can be persisted.
+        WebIDL::resolve_promise(body_read_promise, inner_response->clone(realm));
     }
 
-    // Note: This ensures that innerResponse’s body is locked, and we have a full buffered copy of the body in
-    //       clonedResponse. An implementation could optimize by streaming directly to disk rather than memory.
-
-    // 12. Let operations be an empty list.
-    auto operations = GC::Heap::the().allocate<GC::HeapVector<GC::Ref<CacheBatchOperation>>>();
-
-    // 13. Let operation be a cache batch operation.
-    auto operation = GC::Heap::the().allocate<CacheBatchOperation>(
-        // 14. Set operation’s type to "put".
-        CacheBatchOperation::Type::Put,
-        // 15. Set operation’s request to innerRequest.
-        *inner_request,
-        // 16. Set operation’s response to clonedResponse.
-        cloned_response);
-
-    // 17. Append operation to operations.
-    operations->elements().append(operation);
     // 19. Return the result of the fulfillment of bodyReadPromise:
     WebIDL::react_to_promise(body_read_promise,
-        GC::create_function(GC::Heap::the(), GC::captures(*this, realm, operations, promise), [](auto& self, auto& realm, auto& operations, auto& promise, JS::Value) -> WebIDL::ExceptionOr<JS::Value> {
+        GC::create_function(GC::Heap::the(), GC::captures(*this, realm, inner_request, promise), [](auto& self, auto& realm, auto& inner_request, auto& promise, JS::Value value) -> WebIDL::ExceptionOr<JS::Value> {
             HTML::TemporaryExecutionContext context { realm };
+
+            auto operations = GC::Heap::the().allocate<GC::HeapVector<GC::Ref<CacheBatchOperation>>>();
+            auto& cloned_response = as<Fetch::Infrastructure::ResponseView>(value.as_cell());
+            operations->elements().append(GC::Heap::the().allocate<CacheBatchOperation>(CacheBatchOperation::Type::Put, inner_request.release_nonnull(), cloned_response));
 
             // 2. Return cacheJobPromise and run these steps in parallel:
             Platform::EventLoopPlugin::the().deferred_invoke(GC::create_function(GC::Heap::the(), GC::captures(self, realm, operations, promise), [](auto& self, auto& realm, auto& operations, auto& promise) {
