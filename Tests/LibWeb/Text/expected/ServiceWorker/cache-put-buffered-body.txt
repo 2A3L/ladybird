@@ -1,0 +1,10 @@
+original body locked while reading: true
+old response retained until read completes: true
+original body used: true
+headers copied before reading: true
+binary body retained: true
+body can be read again: true
+failed body rejected: true
+failed write kept previous entry: true
+locked body rejected: TypeError
+null body preserved: true
