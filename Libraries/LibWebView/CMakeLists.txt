@@ -19,6 +19,7 @@ set(SOURCES
     CanonicalTraversable.cpp
     CanonicalWindow.cpp
     BrowserProcess.cpp
+    CacheStorageStore.cpp
     CompositorClient.cpp
     CompositorPresentationClient.cpp
     CookieJar.cpp
