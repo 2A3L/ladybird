@@ -289,19 +289,17 @@ void Cache::add_all(JS::Realm& realm, ReadonlySpan<Fetch::RequestInfo> requests,
         // 6. Run the following substeps in parallel:
         Platform::EventLoopPlugin::the().deferred_invoke(GC::create_function(GC::Heap::the(), GC::captures(realm, fetch_controllers, inner_request, response_promise), [](auto& realm, auto& fetch_controllers, auto& inner_request, auto& response_promise) {
             // * Append the result of fetching r.
-            Fetch::Infrastructure::FetchAlgorithms::Input fetch_algorithms_input { Fetch::Engine::BodyIntent::DeliverStreamToConsumerAgent };
+            Fetch::Infrastructure::FetchAlgorithms::Input fetch_algorithms_input { Fetch::Engine::BodyIntent::ConsumeForCallback };
 
             // * To processResponse for response, run these substeps:
             fetch_algorithms_input.process_response = GC::create_function(GC::Heap::the(), GC::captures(realm, fetch_controllers, response_promise), [](auto& realm, auto& fetch_controllers, auto& response_promise, GC::Ref<Fetch::Infrastructure::ResponseView> response) {
                 HTML::TemporaryExecutionContext context { realm, HTML::TemporaryExecutionContext::CallbacksEnabled::Yes };
-                bool did_reject_promise = false;
 
                 // 1. If response’s type is "error", or response’s status is not an ok status or is 206, reject
                 //    responsePromise with a TypeError.
                 auto status = response->status();
                 if (response->type() == Fetch::Infrastructure::Response::Type::Error || !Fetch::Infrastructure::is_ok_status(status) || status == 206) {
                     WebIDL::reject_promise(response_promise, JS::TypeError::create(realm, "Fetch request failed"_utf16));
-                    did_reject_promise = true;
                 }
                 // 2. Else if response’s header list contains a header named `Vary`, then:
                 else if (response->header_list()->contains("Vary"sv)) {
@@ -313,7 +311,6 @@ void Cache::add_all(JS::Realm& realm, ReadonlySpan<Fetch::RequestInfo> requests,
                         if (field_value == "*"sv) {
                             // 1. Reject responsePromise with a TypeError.
                             WebIDL::reject_promise(response_promise, JS::TypeError::create(realm, "Vary '*' is not supported"_utf16));
-                            did_reject_promise = true;
 
                             // 2. For each fetchController of fetchControllers, abort fetchController.
                             for (auto fetch_controller : fetch_controllers->elements())
@@ -326,24 +323,25 @@ void Cache::add_all(JS::Realm& realm, ReadonlySpan<Fetch::RequestInfo> requests,
                         return IterationDecision::Continue;
                     });
                 }
+            });
 
-                if (did_reject_promise)
-                    return;
+            fetch_algorithms_input.process_response_consume_body = GC::create_function(GC::Heap::the(), GC::captures(realm, response_promise), [](auto& realm, auto& response_promise, GC::Ref<Fetch::Infrastructure::ResponseView> response, Fetch::Infrastructure::FetchAlgorithms::BodyBytes bytes) {
+                HTML::TemporaryExecutionContext context { realm, HTML::TemporaryExecutionContext::CallbacksEnabled::Yes };
 
-                // * To processResponseEndOfBody for response, run these substeps:
-                // FIXME: Spec issue? processResponseEndOfBody is not invoked until the response's body is read, but
-                //        doing so here locks the body's stream, thus cloning the response during batch operations fails.
-                //        So we resolve the pending promise here, which seems to work fine.
-
-                // 1. If response’s aborted flag is set, reject responsePromise with an "AbortError" DOMException and
-                //    abort these steps.
                 if (response->aborted()) {
                     WebIDL::reject_promise(response_promise, WebIDL::AbortError::create("Fetch request was aborted"_utf16));
                     return;
                 }
 
-                // 2. Resolve responsePromise with response.
-                WebIDL::resolve_promise(response_promise, response);
+                if (bytes.has<Fetch::Infrastructure::FetchAlgorithms::ConsumeBodyFailureTag>()) {
+                    WebIDL::reject_promise(response_promise, JS::TypeError::create(realm, "Fetch response body failed"sv));
+                    return;
+                }
+
+                auto record = response->record()->clone();
+                if (auto* body = bytes.get_pointer<Core::ImmutableBytes>())
+                    record->unsafe_response()->set_body(Fetch::Infrastructure::ResponseBody::from_bytes(move(*body)));
+                WebIDL::resolve_promise(response_promise, Fetch::Infrastructure::ResponseView::create(realm, move(record)));
             });
 
             auto fetch_controller = Fetch::Fetching::fetch(realm, inner_request, Fetch::Infrastructure::FetchAlgorithms::create(move(fetch_algorithms_input)));
@@ -417,7 +415,9 @@ void Cache::add_all(JS::Realm& realm, ReadonlySpan<Fetch::RequestInfo> requests,
 
             return JS::js_undefined();
         }),
-        GC::create_function(GC::Heap::the(), GC::captures(promise), [](auto& promise, JS::Value reason) -> WebIDL::ExceptionOr<JS::Value> {
+        GC::create_function(GC::Heap::the(), GC::captures(realm, fetch_controllers, promise), [](auto& realm, auto& fetch_controllers, auto& promise, JS::Value reason) -> WebIDL::ExceptionOr<JS::Value> {
+            for (auto fetch_controller : fetch_controllers->elements())
+                fetch_controller->abort(realm, {});
             WebIDL::reject_promise(promise, reason);
             return JS::js_undefined();
         }));
@@ -497,45 +497,32 @@ void Cache::put(JS::Realm& realm, Fetch::RequestInfo request, GC::Ref<Fetch::Res
         }
     }
 
-    // 9. Let clonedResponse be a clone of innerResponse.
-    auto cloned_response = inner_response->clone(realm);
-
-    // 10. Let bodyReadPromise be a promise resolved with undefined.
-    auto body_read_promise = WebIDL::create_resolved_promise(realm, JS::js_undefined());
-
-    // 11. If innerResponse’s body is non-null, run these substeps:
+    // 9-11. Copy the response and read its body before committing the operation.
+    auto body_read_promise = WebIDL::create_promise(realm);
     if (auto body = inner_response->body()) {
-        // 1. Let stream be innerResponse’s body’s stream.
-        auto stream = body->stream();
-
-        // 2. Let reader be the result of getting a reader for stream.
-        auto reader = MUST(stream->get_a_reader());
-
-        // 3. Set bodyReadPromise to the result of reading all bytes from reader.
-        body_read_promise = reader->read_all_bytes_deprecated();
+        auto record = inner_response->record()->clone();
+        auto reader = MUST(body->stream()->get_a_reader());
+        auto success = GC::create_function(GC::Heap::the(), GC::captures(realm, body_read_promise, move(record)), [](auto& realm, auto& body_read_promise, auto& record, ByteBuffer bytes) {
+            record->unsafe_response()->set_body(Fetch::Infrastructure::ResponseBody::from_bytes(Core::ImmutableBytes::adopt(move(bytes))));
+            WebIDL::resolve_promise(body_read_promise, Fetch::Infrastructure::ResponseView::create(realm, move(record)));
+        });
+        auto failure = GC::create_function(GC::Heap::the(), GC::captures(body_read_promise), [](auto& body_read_promise, JS::Value error) {
+            WebIDL::reject_promise(body_read_promise, error);
+        });
+        reader->read_all_bytes(success, failure);
+    } else {
+        // shortcut: Opaque bodies remain stream-backed, normalize them when filtered responses can be persisted.
+        WebIDL::resolve_promise(body_read_promise, inner_response->clone(realm));
     }
 
-    // Note: This ensures that innerResponse’s body is locked, and we have a full buffered copy of the body in
-    //       clonedResponse. An implementation could optimize by streaming directly to disk rather than memory.
-
-    // 12. Let operations be an empty list.
-    auto operations = GC::Heap::the().allocate<GC::HeapVector<GC::Ref<CacheBatchOperation>>>();
-
-    // 13. Let operation be a cache batch operation.
-    auto operation = GC::Heap::the().allocate<CacheBatchOperation>(
-        // 14. Set operation’s type to "put".
-        CacheBatchOperation::Type::Put,
-        // 15. Set operation’s request to innerRequest.
-        *inner_request,
-        // 16. Set operation’s response to clonedResponse.
-        cloned_response);
-
-    // 17. Append operation to operations.
-    operations->elements().append(operation);
     // 19. Return the result of the fulfillment of bodyReadPromise:
     WebIDL::react_to_promise(body_read_promise,
-        GC::create_function(GC::Heap::the(), GC::captures(*this, realm, operations, promise), [](auto& self, auto& realm, auto& operations, auto& promise, JS::Value) -> WebIDL::ExceptionOr<JS::Value> {
+        GC::create_function(GC::Heap::the(), GC::captures(*this, realm, inner_request, promise), [](auto& self, auto& realm, auto& inner_request, auto& promise, JS::Value value) -> WebIDL::ExceptionOr<JS::Value> {
             HTML::TemporaryExecutionContext context { realm };
+
+            auto operations = GC::Heap::the().allocate<GC::HeapVector<GC::Ref<CacheBatchOperation>>>();
+            auto& cloned_response = as<Fetch::Infrastructure::ResponseView>(value.as_cell());
+            operations->elements().append(GC::Heap::the().allocate<CacheBatchOperation>(CacheBatchOperation::Type::Put, inner_request.release_nonnull(), cloned_response));
 
             // 2. Return cacheJobPromise and run these steps in parallel:
             Platform::EventLoopPlugin::the().deferred_invoke(GC::create_function(GC::Heap::the(), GC::captures(self, realm, operations, promise), [](auto& self, auto& realm, auto& operations, auto& promise) {

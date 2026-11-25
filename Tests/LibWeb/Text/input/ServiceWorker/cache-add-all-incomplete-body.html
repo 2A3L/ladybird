@@ -1,0 +1,31 @@
+<!doctype html>
+<script src="../include.js"></script>
+<script>
+    promiseTest(async () => {
+        const server = httpTestServer();
+        const path = "/cache-add-all";
+        const headers = { "Cache-Control": "no-store" };
+        const oldUrl = await server.createEcho("GET", `${path}/old`, { status: 200, headers, body: "replacement" });
+        const newUrl = await server.createEcho("GET", `${path}/new`, { status: 200, headers, body: "new response" });
+        const badPath = `${path}/incomplete`;
+        const incompleteHeader = "X-Ladybird-Respond-With-Incomplete-Response";
+        const badUrl = await server.createEcho("GET", badPath, { status: 200, headers, body: "unused" });
+
+        const cache = await caches.open("cache-add-all-incomplete-body");
+        await cache.put(oldUrl, new Response("original"));
+        try {
+            await cache.addAll([oldUrl, newUrl, new Request(badUrl, { headers: { [incompleteHeader]: "1" } })]);
+            println("incomplete batch unexpectedly succeeded");
+        } catch (error) {
+            println(`incomplete batch rejected: ${error.name}`);
+        }
+        println(`original entry retained: ${(await (await cache.match(oldUrl)).text()) === "original"}`);
+        println(`new entry absent: ${(await cache.match(newUrl)) === undefined}`);
+        println(`incomplete entry absent: ${(await cache.match(badUrl)) === undefined}`);
+
+        await cache.addAll([oldUrl, newUrl]);
+        println(`replacement body retained: ${(await (await cache.match(oldUrl)).text()) === "replacement"}`);
+        println(`new body retained: ${(await (await cache.match(newUrl)).text()) === "new response"}`);
+        await caches.delete("cache-add-all-incomplete-body");
+    });
+</script>
