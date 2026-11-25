@@ -113,6 +113,6 @@ TEST_CASE(replacement_has_no_group_or_other_access)
     VERIFY(chmod(path.characters(), 0644) == 0);
     TRY_OR_FAIL(WebView::write_json_file(path, object));
     auto stat = TRY_OR_FAIL(Core::File::stat(path));
-    EXPECT_EQ(stat.st_mode & 0077, 0);
+    EXPECT_EQ(stat.st_mode & 0077u, 0u);
 }
 #endif
