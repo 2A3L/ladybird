@@ -155,6 +155,7 @@ struct ContentBlockerList {
 };
 
 enum class ConfigVariableID : u8 {
+    InterfaceLanguage,
     ShowWebContentProcessIDInTabTitle,
     ShowAdvancedDebugMenu,
     ShowTabPerformanceMonitor,

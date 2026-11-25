@@ -5,6 +5,7 @@
  */
 
 #include <LibTest/TestCase.h>
+#include <UI/Qt/Localization.h>
 #include <UI/Qt/Menu.h>
 
 #include <QAction>
@@ -50,4 +51,24 @@ TEST_CASE(zoom_percentage_updates_while_menu_is_open)
 
     confirmed_zoom->set_visible(false);
     EXPECT(percentage->text() == QStringLiteral("100%"));
+}
+
+TEST_CASE(interface_language_translates_known_actions_and_preserves_other_text)
+{
+    Ladybird::set_interface_language("es"sv);
+    QMenu menu;
+    auto action = Ladybird::Action::create("Settings"sv, Ladybird::ActionID::OpenSettingsPage, [] { });
+    Ladybird::ActionBinding binding(menu, Ladybird::IncludeActionIcon::No);
+    binding.bind(*action);
+    EXPECT(binding.action().text() == QStringLiteral("Configuración"));
+    EXPECT(Ladybird::localized_menu_title("&File"sv) == QStringLiteral("&Archivo"));
+    EXPECT(Ladybird::localized_menu_title("Bookmarks"sv) == QStringLiteral("Marcadores"));
+    EXPECT(Ladybird::localized_menu_title("Custom folder"sv) == QStringLiteral("Custom folder"));
+    action->set_text("Custom title"sv);
+    EXPECT(binding.action().text() == QStringLiteral("Custom title"));
+    EXPECT(Ladybird::localized_action_text(Ladybird::ActionID::OpenSettingsPage, "Custom title"sv) == QStringLiteral("Custom title"));
+    EXPECT(Ladybird::localized_action_text(Ladybird::ActionID::BookmarkItem, "Settings"sv) == QStringLiteral("Settings"));
+    Ladybird::set_interface_language("unknown"sv);
+    EXPECT(Ladybird::localized_action_text(Ladybird::ActionID::OpenSettingsPage, "Settings"sv) == QStringLiteral("Settings"));
+    EXPECT(Ladybird::localized_menu_title("&File"sv) == QStringLiteral("&File"));
 }

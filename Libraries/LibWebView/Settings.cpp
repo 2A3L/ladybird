@@ -117,6 +117,14 @@ static bool is_valid_content_blocker_list_identifier(StringView identifier)
 
 static auto const& CONFIG_VARIABLE_DEFINITIONS = *new Array<ConfigVariableDefinition, static_cast<size_t>(ConfigVariableID::Count)> { {
     {
+        .id = ConfigVariableID::InterfaceLanguage,
+        .name = "ui.interface.language"sv,
+        .title = "Interface language"sv,
+        .description = "Language used for supported parts of the browser interface."sv,
+        .default_value = "en"_string,
+        .array_element_type = {},
+    },
+    {
         .id = ConfigVariableID::ShowWebContentProcessIDInTabTitle,
         .name = "debug.process.show_web_content_process_id"sv,
         .title = "Show WebContent process ID in tab titles"sv,
@@ -422,6 +430,9 @@ static bool config_variable_value_is_valid(ConfigVariableDefinition const& varia
 {
     if (!json_value_matches_type(value, variable.default_value.type()))
         return false;
+
+    if (variable.id == ConfigVariableID::InterfaceLanguage)
+        return value.as_string() == "en"sv || value.as_string() == "es"sv;
 
     if (variable.id == ConfigVariableID::VerticalTabsHoverExpandDelay || variable.id == ConfigVariableID::VerticalTabsHoverExpandAnimationDuration) {
         auto milliseconds = value.get_int();

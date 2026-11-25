@@ -66,3 +66,36 @@ TEST_CASE(a_non_boolean_saved_value_leaves_restoring_off)
     EXPECT(!settings.restore_previous_session());
     remove_settings_file();
 }
+
+TEST_CASE(interface_language_is_persistent_and_rejects_unknown_values)
+{
+    remove_settings_file();
+    {
+        auto settings = WebView::Settings::create(settings_path());
+        EXPECT_EQ(settings.config_variable(WebView::ConfigVariableID::InterfaceLanguage).as_string(), "en"sv);
+        settings.set_config_variable(WebView::ConfigVariableID::InterfaceLanguage, "es"_string);
+    }
+    {
+        auto settings = WebView::Settings::create(settings_path());
+        EXPECT_EQ(settings.config_variable(WebView::ConfigVariableID::InterfaceLanguage).as_string(), "es"sv);
+        settings.set_config_variable(WebView::ConfigVariableID::InterfaceLanguage, "invalid"_string);
+        EXPECT_EQ(settings.config_variable(WebView::ConfigVariableID::InterfaceLanguage).as_string(), "es"sv);
+        settings.set_config_variable(WebView::ConfigVariableID::InterfaceLanguage, "en"_string);
+    }
+    auto settings = WebView::Settings::create(settings_path());
+    EXPECT_EQ(settings.config_variable(WebView::ConfigVariableID::InterfaceLanguage).as_string(), "en"sv);
+    remove_settings_file();
+}
+
+TEST_CASE(invalid_interface_language_defaults_to_english_without_changing_website_languages)
+{
+    remove_settings_file();
+    write_settings_file(R"({"languages":["es-CL","en-US"],"configVariables":{"ui.interface.language":"fr"}})"sv);
+
+    auto settings = WebView::Settings::create(settings_path());
+    EXPECT_EQ(settings.config_variable(WebView::ConfigVariableID::InterfaceLanguage).as_string(), "en"sv);
+    auto website_languages = settings.languages();
+    settings.set_config_variable(WebView::ConfigVariableID::InterfaceLanguage, "es"_string);
+    EXPECT(settings.languages() == website_languages);
+    remove_settings_file();
+}

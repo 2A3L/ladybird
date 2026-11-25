@@ -63,6 +63,7 @@
 #include <UI/Qt/EventLoopImplementationQt.h>
 #include <UI/Qt/ExternalURLHandler.h>
 #include <UI/Qt/HistoryPage.h>
+#include <UI/Qt/Localization.h>
 #include <UI/Qt/Menu.h>
 #include <UI/Qt/PageCard.h>
 #include <UI/Qt/PictureInPictureWindow.h>
@@ -546,8 +547,10 @@ public:
         QObject::connect(m_quit_action, &QAction::triggered, this, []() { Application::the().quit(); });
 
         m_bookmarks_menu = create_application_menu(*m_application_widget, Application::bookmarks().menu());
+        m_bookmarks_menu->setTitle(localized_menu_title("Bookmarks"sv));
 
         m_history_menu = create_application_menu(*m_application_widget, application.history_menu());
+        m_history_menu->setTitle(localized_menu_title("History"sv));
         add_history_navigation_actions(*m_history_menu, *m_navigate_back_action, *m_navigate_forward_action);
         QObject::connect(m_history_menu, &QMenu::aboutToShow, this, [this]() {
             auto* tab = Application::the().active_tab();
@@ -555,9 +558,11 @@ public:
         });
 
         m_inspect_menu = create_application_menu(*m_application_widget, application.inspect_menu());
+        m_inspect_menu->setTitle(localized_menu_title("Inspect"sv));
         m_debug_menu = create_application_menu(*m_application_widget, application.debug_menu());
+        m_debug_menu->setTitle(localized_menu_title("Debug"sv));
 
-        m_help_menu = new QMenu("Help", m_application_widget);
+        m_help_menu = new QMenu(localized_menu_title("Help"sv), m_application_widget);
         m_help_menu->addAction(create_application_action(*m_application_widget, application.report_website_issue_action(), IncludeActionIcon::No));
         m_help_menu->addSeparator();
         m_help_menu->addAction(create_application_action(*m_application_widget, application.open_about_page_action(), IncludeActionIcon::No));
@@ -963,6 +968,7 @@ ErrorOr<void> Application::connect_to_hub(Main::Arguments const& arguments)
     m_hub_connection->did_initialize();
 
     m_settings = make<WebView::Settings>(WebView::Settings::create_from_json(TRY(JsonValue::from_string(state.settings_json))));
+    set_interface_language(m_settings->config_variable(WebView::ConfigVariableID::InterfaceLanguage).as_string());
     create_session_store(state.data_directory, state.persists_sessions);
     create_history_store(state.data_directory, state.uses_sql_database);
     m_bookmark_store = make<BookmarkStore>(BookmarkStore::create(LexicalPath::join(state.config_directory, "Bookmarks.json"sv).string(), *m_favicon_store));
@@ -1291,6 +1297,7 @@ void Application::create_platform_actions()
     auto& hub = WebView::Application::the();
 
     m_settings = make<WebView::Settings>(WebView::Settings::create_from_json(WebView::Application::settings().serialize_json()));
+    set_interface_language(m_settings->config_variable(WebView::ConfigVariableID::InterfaceLanguage).as_string());
     m_profile_is_temporary = WebView::Application::profile().is_temporary();
     create_session_store(WebView::Application::profile().paths().data, hub.persists_sessions());
     create_history_store(WebView::Application::profile().paths().data, WebView::Application::browser_options().disable_sql_database == WebView::DisableSQLDatabase::No);
@@ -3127,7 +3134,7 @@ QMenuBar* Application::create_application_menu_bar(ForBrowserWindow for_browser_
     auto& application = ApplicationActions::the();
     auto* menu_bar = new QMenuBar();
 
-    auto* file_menu = menu_bar->addMenu("&File");
+    auto* file_menu = menu_bar->addMenu(localized_menu_title("&File"sv));
     file_menu->addAction(new_tab_action());
     file_menu->addAction(new_window_action());
     file_menu->addAction(new_private_window_action());
@@ -3142,7 +3149,7 @@ QMenuBar* Application::create_application_menu_bar(ForBrowserWindow for_browser_
     file_menu->addSeparator();
     file_menu->addAction(quit_action());
 
-    auto* edit_menu = menu_bar->addMenu("&Edit");
+    auto* edit_menu = menu_bar->addMenu(localized_menu_title("&Edit"sv));
     if (for_browser_window == ForBrowserWindow::Yes) {
         edit_menu->addAction(create_application_action(*menu_bar, application.undo_action(), IncludeActionIcon::No));
         edit_menu->addAction(create_application_action(*menu_bar, application.redo_action(), IncludeActionIcon::No));
@@ -3162,7 +3169,7 @@ QMenuBar* Application::create_application_menu_bar(ForBrowserWindow for_browser_
     }
     edit_menu->addAction(open_settings_action());
 
-    auto* view_menu = menu_bar->addMenu("&View");
+    auto* view_menu = menu_bar->addMenu(localized_menu_title("&View"sv));
     if (for_browser_window == ForBrowserWindow::Yes) {
         view_menu->addAction(open_next_tab_action());
         view_menu->addAction(open_previous_tab_action());
@@ -3192,7 +3199,7 @@ QMenuBar* Application::create_application_menu_bar(ForBrowserWindow for_browser_
 
         // The translation menu is the active tab's, so it's filled in as it opens.
         if (Application::the().has_translator()) {
-            auto* translation_menu = view_menu->addMenu("&Translation");
+            auto* translation_menu = view_menu->addMenu(localized_menu_title("&Translation"sv));
             QObject::connect(translation_menu, &QMenu::aboutToShow, translation_menu, [translation_menu] {
                 if (auto* tab = Application::the().active_tab())
                     repopulate_application_menu(*translation_menu, tab->view().translation_menu());
@@ -3219,7 +3226,7 @@ QMenuBar* Application::create_application_menu_bar(ForBrowserWindow for_browser_
     } else {
         // NB: The Task Manager needs no browser window, so it can be opened while none is focused, such as right after
         //     it was closed.
-        auto* inspect_menu = menu_bar->addMenu("&Inspect");
+        auto* inspect_menu = menu_bar->addMenu(localized_menu_title("&Inspect"sv));
         inspect_menu->addAction(create_application_action(*inspect_menu, *m_open_task_manager_action, IncludeActionIcon::No));
     }
     menu_bar->addMenu(help_menu());
