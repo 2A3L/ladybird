@@ -261,6 +261,9 @@ ConnectionBase::PeerEOF ConnectionBase::drain_messages_from_peer()
     auto schedule_shutdown = m_transport->read_as_many_messages_as_possible_without_blocking([&](auto&& raw_message) {
         auto bytes = raw_message.bytes.bytes();
         if (auto message = try_parse_message(raw_message.bytes, raw_message.attachments)) {
+#if !defined(AK_OS_MACOS) && !defined(AK_OS_IOS) && !defined(AK_OS_WINDOWS)
+            message->m_receive_reservation = move(raw_message.receive_reservation);
+#endif
             m_unprocessed_messages.append(message.release_nonnull());
         } else {
             dbgln("Failed to parse IPC message {:hex-dump}", bytes);

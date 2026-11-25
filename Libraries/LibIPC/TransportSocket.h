@@ -48,10 +48,12 @@ struct SocketMessageHeader {
     u32 fd_count { 0 };
 };
 
+class SocketMessageReservation;
+
 class SendQueue : public AtomicRefCounted<SendQueue> {
 public:
     // Answers whether the queue was empty before this message.
-    bool enqueue_message(SocketMessageHeader, MessageDataType payload, Vector<NonnullRefPtr<AutoCloseFileDescriptor>>&& fds);
+    ErrorOr<bool> enqueue_message(SocketMessageHeader, MessageDataType payload, Vector<NonnullRefPtr<AutoCloseFileDescriptor>>&& fds, RefPtr<SocketMessageReservation>&& = {});
     struct BytesAndFds {
         Vector<u8> bytes;
         Vector<int> fds;
@@ -59,11 +61,16 @@ public:
     BytesAndFds peek(size_t max_bytes);
     void discard(size_t bytes_count, size_t fds_count);
     void wait_until_drained();
+    enum class DiscardPending {
+        No,
+        Yes,
+    };
     // Called when the IO thread stops, so that a waiter is not left waiting for a write that will never happen.
-    void release_drain_waiters();
+    void release_drain_waiters(DiscardPending = DiscardPending::No);
 
 private:
     struct QueuedMessage {
+        RefPtr<SocketMessageReservation> reservation;
         SocketMessageHeader header;
         MessageDataType payload;
         Vector<NonnullRefPtr<AutoCloseFileDescriptor>> unsent_fds;
@@ -77,6 +84,58 @@ private:
     Mutex m_mutex;
     ConditionVariable m_drained_cv { m_mutex };
     bool m_drain_waiters_released { false };
+};
+
+class SocketMessageBudget final : public AtomicRefCounted<SocketMessageBudget> {
+public:
+    struct Limits {
+        size_t bytes;
+        size_t descriptors;
+    };
+
+    explicit SocketMessageBudget(Limits limits)
+        : m_limits(limits)
+    {
+    }
+
+private:
+    friend class SocketMessageReservation;
+    friend class TransportSocket;
+
+    SocketMessageBudget(Limits limits, NonnullRefPtr<SocketMessageBudget> pool)
+        : m_limits(limits)
+        , m_pool(move(pool))
+    {
+    }
+
+    bool try_reserve(size_t bytes, size_t descriptors);
+    void release(size_t bytes, size_t descriptors);
+
+    Limits m_limits;
+    RefPtr<SocketMessageBudget> m_pool;
+    Mutex m_mutex;
+    Limits m_used { 0, 0 };
+};
+
+class SocketMessageReservation final : public AtomicRefCounted<SocketMessageReservation> {
+    AK_MAKE_NONCOPYABLE(SocketMessageReservation);
+
+public:
+    ~SocketMessageReservation() { m_budget->release(m_bytes, m_descriptors); }
+
+private:
+    friend class TransportSocket;
+
+    SocketMessageReservation(NonnullRefPtr<SocketMessageBudget> budget, size_t bytes, size_t descriptors)
+        : m_budget(move(budget))
+        , m_bytes(bytes)
+        , m_descriptors(descriptors)
+    {
+    }
+
+    NonnullRefPtr<SocketMessageBudget> m_budget;
+    size_t m_bytes;
+    size_t m_descriptors;
 };
 
 class TransportSocket {
@@ -93,13 +152,22 @@ public:
         NonnullOwnPtr<TransportSocket> local;
         TransportHandle remote_handle;
     };
-    static ErrorOr<Paired> create_paired();
-    static ErrorOr<NonnullOwnPtr<TransportSocket>> from_socket(NonnullOwnPtr<Core::LocalSocket> socket);
+    struct AdmissionLimits {
+        SocketMessageBudget::Limits connection;
+        NonnullRefPtr<SocketMessageBudget> pool;
+    };
+    struct AdmissionOptions {
+        // Each limit applies to all messages in that direction. Use separate receive and send pools.
+        Optional<AdmissionLimits> receive;
+        Optional<AdmissionLimits> send;
+    };
+    static ErrorOr<Paired> create_paired(AdmissionOptions = {});
+    static ErrorOr<NonnullOwnPtr<TransportSocket>> from_socket(NonnullOwnPtr<Core::LocalSocket> socket, AdmissionOptions = {});
     static ErrorOr<NonnullOwnPtr<TransportSocket>> adopt_fd(int fd);
     // The bytes and attachments are what the last owner read off the socket without seeing the end of the message.
     static ErrorOr<NonnullOwnPtr<TransportSocket>> adopt_fd(int fd, ByteBuffer unprocessed_bytes, Vector<Attachment> unprocessed_attachments);
 
-    explicit TransportSocket(NonnullOwnPtr<Core::LocalSocket> socket, ByteBuffer unprocessed_bytes = {}, Vector<Attachment> unprocessed_attachments = {});
+    explicit TransportSocket(NonnullOwnPtr<Core::LocalSocket> socket, ByteBuffer unprocessed_bytes = {}, Vector<Attachment> unprocessed_attachments = {}, AdmissionOptions = {});
     ~TransportSocket();
 
     // Makes the transports that this thread creates from now on share one IO thread with all others made this way, or
@@ -141,6 +209,7 @@ public:
     struct Message {
         AK_ALLOC_WITH_KMALLOC;
 
+        RefPtr<SocketMessageReservation> receive_reservation;
         ReceivedMessageBytes bytes;
         Queue<Attachment> attachments;
     };
@@ -192,6 +261,9 @@ private:
     };
     [[nodiscard]] MoreToRead read_incoming_messages();
     void parse_unprocessed_messages(Vector<NonnullOwnPtr<Message>>&);
+    void reject_receive_admission();
+    void discard_unprocessed_input();
+    void discard_admitted_messages();
     void notify_read_available();
     void notify_incoming_message_observer(ReadonlyBytes);
     bool incoming_is_behind_socket() const;
@@ -207,6 +279,9 @@ private:
     Atomic<IOThreadState> m_io_thread_state { IOThreadState::Running };
     Atomic<bool> m_is_being_transferred { false };
     Atomic<bool> m_peer_eof { false };
+    RefPtr<SocketMessageBudget> m_receive_budget;
+    RefPtr<SocketMessageBudget> m_send_budget;
+    bool m_receive_admission_failed { false };
     ByteBuffer m_unprocessed_bytes;
     Queue<Attachment> m_unprocessed_attachments;
     Mutex m_incoming_mutex;

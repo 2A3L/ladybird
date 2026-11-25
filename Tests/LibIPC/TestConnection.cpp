@@ -37,10 +37,11 @@ class TestMessage final : public IPC::Message {
 public:
     AK_ALLOC_WITH_KMALLOC;
 
-    explicit TestMessage(int id, u64 sequence = 0, u32 magic = TEST_MAGIC)
+    explicit TestMessage(int id, u64 sequence = 0, u32 magic = TEST_MAGIC, ByteBuffer body = {})
         : m_id(id)
         , m_sequence(sequence)
         , m_magic(magic)
+        , m_body(move(body))
     {
     }
 
@@ -49,12 +50,15 @@ public:
     StringView message_name() const override { return "TestMessage"sv; }
 
     u64 sequence() const { return m_sequence; }
+    ReadonlyBytes body() const { return m_body.bytes(); }
 
     ErrorOr<IPC::MessageBuffer> encode() const override
     {
         IPC::MessageBuffer buffer;
         u32 id = static_cast<u32>(m_id);
         TRY(buffer.append_data(reinterpret_cast<u8 const*>(&id), sizeof(id)));
+        if (!m_body.is_empty())
+            TRY(buffer.append_data(m_body.data(), m_body.size()));
         return buffer;
     }
 
@@ -62,6 +66,7 @@ private:
     int m_id { 0 };
     u64 m_sequence { 0 };
     u32 m_magic { TEST_MAGIC };
+    ByteBuffer m_body;
 };
 
 class CountingStub final : public IPC::Stub {
@@ -113,9 +118,12 @@ protected:
     OwnPtr<IPC::Message> try_parse_message(IPC::ReceivedMessageBytes const& received_bytes, Queue<IPC::Attachment>&) override
     {
         auto bytes = received_bytes.bytes();
-        if (bytes.size() != sizeof(u32))
+        if (bytes.size() < sizeof(u32))
             return nullptr;
-        return make<TestMessage>(static_cast<int>(AK::ByteReader::load32(bytes.data())));
+        auto body = ByteBuffer::copy(bytes.slice(sizeof(u32)));
+        if (body.is_error())
+            return nullptr;
+        return make<TestMessage>(static_cast<int>(AK::ByteReader::load32(bytes.data())), 0, TEST_MAGIC, body.release_value());
     }
 
 private:
@@ -178,6 +186,74 @@ ByteBuffer patterned_bytes(size_t size, u8 seed)
 }
 
 }
+
+#if defined(AK_OS_LINUX)
+TEST_CASE(socket_receive_admission_keeps_shared_payload_charged_through_typed_dispatch_and_close)
+{
+    Core::EventLoop loop;
+    auto constexpr body_size = IPC::TransportSocket::MAX_INLINE_PAYLOAD_SIZE;
+    auto constexpr message_size = body_size + sizeof(u32);
+    auto pool = adopt_ref(*new IPC::SocketMessageBudget({ message_size, 2 }));
+    IPC::TransportSocket::AdmissionOptions options {
+        .receive = IPC::TransportSocket::AdmissionLimits { { message_size, 1 }, pool },
+        .send = {},
+    };
+    TestMessage fixture { OTHER_MESSAGE_ID, 0, TEST_MAGIC, patterned_bytes(body_size, 'a') };
+
+    auto first_pair = TRY_OR_FAIL(IPC::Transport::create_paired(options));
+    auto first_sender = TRY_OR_FAIL(first_pair.remote_handle.create_transport());
+    CountingStub first_stub;
+    first_stub.on_message = [&](IPC::Message const& message) {
+        EXPECT_EQ(message.message_id(), OTHER_MESSAGE_ID);
+        bool matches = static_cast<TestMessage const&>(message).body() == fixture.body();
+        EXPECT(matches);
+    };
+    auto first = TestConnection::construct(first_stub, move(first_pair.local));
+
+    auto send = [&](IPC::Transport& sender, TestConnection& receiver) {
+        auto buffer = MUST(fixture.encode());
+        MUST(buffer.transfer_message(sender));
+        sender.flush();
+        receiver.transport().wait_until_incoming_is_current();
+        return receiver.drain_messages_from_peer();
+    };
+
+    auto no_descriptors = options;
+    no_descriptors.receive->connection.descriptors = 0;
+    auto descriptor_limited_pair = TRY_OR_FAIL(IPC::Transport::create_paired(no_descriptors));
+    auto descriptor_limited_sender = TRY_OR_FAIL(descriptor_limited_pair.remote_handle.create_transport());
+    CountingStub descriptor_limited_stub;
+    auto descriptor_limited = TestConnection::construct(descriptor_limited_stub, move(descriptor_limited_pair.local));
+    EXPECT_EQ(send(*descriptor_limited_sender, *descriptor_limited), TestConnection::PeerEOF::Yes);
+    descriptor_limited->shutdown();
+
+    EXPECT_EQ(send(*first_sender, *first), TestConnection::PeerEOF::No);
+    EXPECT_EQ(first_stub.handle_count(), 0u);
+
+    auto second_pair = TRY_OR_FAIL(IPC::Transport::create_paired(options));
+    auto second_sender = TRY_OR_FAIL(second_pair.remote_handle.create_transport());
+    CountingStub second_stub;
+    auto second = TestConnection::construct(second_stub, move(second_pair.local));
+    // Both peers fit their own limits, but the first decoded message still holds the shared pool's byte allowance.
+    EXPECT_EQ(send(*second_sender, *second), TestConnection::PeerEOF::Yes);
+    second->shutdown();
+    EXPECT_EQ(second_stub.handle_count(), 0u);
+
+    first->handle_messages();
+    EXPECT_EQ(first_stub.handle_count(), 1u);
+    EXPECT_EQ(send(*first_sender, *first), TestConnection::PeerEOF::No);
+    first->shutdown();
+    EXPECT_EQ(first_stub.handle_count(), 1u);
+
+    auto final_pair = TRY_OR_FAIL(IPC::Transport::create_paired(options));
+    auto final_sender = TRY_OR_FAIL(final_pair.remote_handle.create_transport());
+    CountingStub final_stub;
+    auto final = TestConnection::construct(final_stub, move(final_pair.local));
+    EXPECT_EQ(send(*final_sender, *final), TestConnection::PeerEOF::No);
+    final->handle_messages();
+    EXPECT_EQ(final_stub.handle_count(), 1u);
+}
+#endif
 
 TEST_CASE(taking_unprocessed_messages_includes_the_current_dispatch_batch)
 {

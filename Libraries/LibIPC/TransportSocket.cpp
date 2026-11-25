@@ -55,9 +55,9 @@ void TransportSocket::set_skip_inloop_read_for_test(bool skip)
     s_skip_inloop_read_for_test.store(skip, AK::MemoryOrder::memory_order_relaxed);
 }
 
-ErrorOr<NonnullOwnPtr<TransportSocket>> TransportSocket::from_socket(NonnullOwnPtr<Core::LocalSocket> socket)
+ErrorOr<NonnullOwnPtr<TransportSocket>> TransportSocket::from_socket(NonnullOwnPtr<Core::LocalSocket> socket, AdmissionOptions options)
 {
-    return make<TransportSocket>(move(socket));
+    return make<TransportSocket>(move(socket), ByteBuffer {}, Vector<Attachment> {}, move(options));
 }
 
 ErrorOr<NonnullOwnPtr<TransportSocket>> TransportSocket::adopt_fd(int fd)
@@ -72,7 +72,7 @@ ErrorOr<NonnullOwnPtr<TransportSocket>> TransportSocket::adopt_fd(int fd, ByteBu
     return make<TransportSocket>(move(socket), move(unprocessed_bytes), move(unprocessed_attachments));
 }
 
-ErrorOr<TransportSocket::Paired> TransportSocket::create_paired()
+ErrorOr<TransportSocket::Paired> TransportSocket::create_paired(AdmissionOptions options)
 {
     int fds[2] {};
     // NB: Close-on-exec from the start. Another thread could spawn a process between creating the pair and marking it.
@@ -88,14 +88,38 @@ ErrorOr<TransportSocket::Paired> TransportSocket::create_paired()
 
     // Local side gets a full transport; remote side is just a handle containing the raw fd for transfer to another process.
     return Paired {
-        make<TransportSocket>(move(socket0)),
+        make<TransportSocket>(move(socket0), ByteBuffer {}, Vector<Attachment> {}, move(options)),
         TransportHandle { File::adopt_fd(fds[1]) },
     };
 }
 
-bool SendQueue::enqueue_message(SocketMessageHeader header, MessageDataType payload, Vector<NonnullRefPtr<AutoCloseFileDescriptor>>&& fds)
+bool SocketMessageBudget::try_reserve(size_t bytes, size_t descriptors)
 {
     MutexLocker locker(m_mutex);
+    if (bytes > m_limits.bytes - m_used.bytes || descriptors > m_limits.descriptors - m_used.descriptors)
+        return false;
+    if (m_pool && !m_pool->try_reserve(bytes, descriptors))
+        return false;
+    m_used.bytes += bytes;
+    m_used.descriptors += descriptors;
+    return true;
+}
+
+void SocketMessageBudget::release(size_t bytes, size_t descriptors)
+{
+    MutexLocker locker(m_mutex);
+    VERIFY(bytes <= m_used.bytes && descriptors <= m_used.descriptors);
+    m_used.bytes -= bytes;
+    m_used.descriptors -= descriptors;
+    if (m_pool)
+        m_pool->release(bytes, descriptors);
+}
+
+ErrorOr<bool> SendQueue::enqueue_message(SocketMessageHeader header, MessageDataType payload, Vector<NonnullRefPtr<AutoCloseFileDescriptor>>&& fds, RefPtr<SocketMessageReservation>&& reservation)
+{
+    MutexLocker locker(m_mutex);
+    if (reservation && m_drain_waiters_released)
+        return Error::from_errno(EPIPE);
     bool queue_was_empty = m_queued_messages.is_empty();
 
     // Send the descriptors that do not fit in one sendmsg() with the message ahead of it, in full frames.
@@ -113,12 +137,13 @@ bool SendQueue::enqueue_message(SocketMessageHeader header, MessageDataType payl
         for (size_t i = 0; i < Core::LocalSocket::MAX_TRANSFER_FDS; ++i)
             attachment_fds.unchecked_append(fds[offset + i]);
         m_queued_byte_count += sizeof(SocketMessageHeader);
-        m_queued_messages.append(QueuedMessage { attachments_header, {}, move(attachment_fds) });
+        m_queued_messages.append(QueuedMessage { {}, attachments_header, {}, move(attachment_fds) });
     }
     fds.remove(0, fds_ahead);
 
     m_queued_byte_count += sizeof(SocketMessageHeader) + payload.size();
-    m_queued_messages.append(QueuedMessage { header, move(payload), move(fds) });
+    // The final frame outlives every descriptor frame of the same message.
+    m_queued_messages.append(QueuedMessage { move(reservation), header, move(payload), move(fds) });
     return queue_was_empty;
 }
 
@@ -213,9 +238,13 @@ void SendQueue::wait_until_drained()
         m_drained_cv.wait();
 }
 
-void SendQueue::release_drain_waiters()
+void SendQueue::release_drain_waiters(DiscardPending discard_pending)
 {
     MutexLocker locker(m_mutex);
+    if (discard_pending == DiscardPending::Yes) {
+        m_queued_messages.clear();
+        m_queued_byte_count = 0;
+    }
     m_drain_waiters_released = true;
     m_drained_cv.broadcast();
 }
@@ -327,13 +356,21 @@ void TransportSocket::set_share_io_thread_on_this_thread(bool share_io_thread)
     s_share_io_thread_on_this_thread = share_io_thread;
 }
 
-TransportSocket::TransportSocket(NonnullOwnPtr<Core::LocalSocket> socket, ByteBuffer unprocessed_bytes, Vector<Attachment> unprocessed_attachments)
+TransportSocket::TransportSocket(NonnullOwnPtr<Core::LocalSocket> socket, ByteBuffer unprocessed_bytes, Vector<Attachment> unprocessed_attachments, AdmissionOptions options)
     : m_socket(move(socket))
     , m_shares_io_thread(s_share_io_thread_on_this_thread)
     , m_unprocessed_bytes(move(unprocessed_bytes))
 {
-    for (auto& attachment : unprocessed_attachments)
-        m_unprocessed_attachments.enqueue(move(attachment));
+    if (options.receive.has_value())
+        m_receive_budget = adopt_ref(*new SocketMessageBudget(options.receive->connection, move(options.receive->pool)));
+    if (options.send.has_value())
+        m_send_budget = adopt_ref(*new SocketMessageBudget(options.send->connection, move(options.send->pool)));
+    if (m_receive_budget && !unprocessed_attachments.is_empty() && !m_receive_budget->try_reserve(0, unprocessed_attachments.size())) {
+        reject_receive_admission();
+    } else {
+        for (auto& attachment : unprocessed_attachments)
+            m_unprocessed_attachments.enqueue(move(attachment));
+    }
 
     // Disable the socket's built-in notifier. TransportSocket uses its own pipe-based notification mechanism on the IO
     // thread, so this notifier is unused. Otherwise, when the socket reaches EOF, this notifier is disabled from the IO
@@ -461,7 +498,13 @@ intptr_t TransportSocket::io_thread_loop()
 void TransportSocket::finish_io()
 {
     VERIFY(m_io_thread_state == IOThreadState::Stopped);
-    m_send_queue->release_drain_waiters();
+    if (m_send_budget) {
+        // The posting thread can still be writing with descriptors borrowed from the queue.
+        MutexLocker locker(m_send_mutex);
+        m_send_queue->release_drain_waiters(SendQueue::DiscardPending::Yes);
+    } else {
+        m_send_queue->release_drain_waiters();
+    }
     if (!m_is_being_transferred.load(AK::MemoryOrder::memory_order_acquire)) {
         // The loop may have stopped on a send-side failure (the peer closed its end while we still had data queued to
         // send — so transfer_data() returned SocketClosed) without reading a final inbound message left buffered on the
@@ -469,11 +512,12 @@ void TransportSocket::finish_io()
         // transform stream's "error") is actually delivered — rather than discarded. A peer that is still writing must
         // not keep us here forever, so read no more than the unprocessed buffer was ever allowed to hold.
         static constexpr size_t max_drain_rounds = MAX_UNPROCESSED_BUFFER_SIZE / (READ_BUFFER_SIZE * MAX_READS_PER_ROUND);
-        for (size_t round = 0; round < max_drain_rounds; ++round) {
+        for (size_t round = 0; !m_receive_admission_failed && round < max_drain_rounds; ++round) {
             if (read_incoming_messages() == MoreToRead::No)
                 break;
         }
 
+        discard_unprocessed_input();
         notify_incoming_message_observer({});
 
         MutexLocker locker(m_incoming_mutex);
@@ -502,6 +546,7 @@ void TransportSocket::wake_io_thread()
 TransportSocket::~TransportSocket()
 {
     stop_io_thread(IOThreadState::Stopped);
+    discard_unprocessed_input();
     m_read_hook_notifier.clear();
 }
 
@@ -561,6 +606,7 @@ void TransportSocket::close()
 {
     m_socket_is_open.store(false, AK::MemoryOrder::memory_order_relaxed);
     stop_io_thread(IOThreadState::Stopped);
+    discard_admitted_messages();
     MutexLocker locker(m_send_mutex);
     m_socket->close();
 }
@@ -569,6 +615,7 @@ void TransportSocket::close_after_sending_all_pending_messages()
 {
     m_socket_is_open.store(false, AK::MemoryOrder::memory_order_relaxed);
     stop_io_thread(IOThreadState::SendPendingMessagesAndStop);
+    discard_admitted_messages();
     MutexLocker locker(m_send_mutex);
     m_socket->close();
 }
@@ -660,18 +707,30 @@ static ErrorOr<Vector<u8>> copy_payload_from_shared_memory(int fd, size_t size)
 
 ErrorOr<void> TransportSocket::post_message(MessageDataType bytes_to_write, Vector<Attachment>& attachments)
 {
+    bool const uses_shared_memory = bytes_to_write.size() > MAX_INLINE_PAYLOAD_SIZE;
+    auto const descriptor_count = attachments.size() + uses_shared_memory;
+    RefPtr<SocketMessageReservation> reservation;
+    if (m_send_budget) {
+        if (!is_open() || m_io_thread_state.load(AK::MemoryOrder::memory_order_acquire) != IOThreadState::Running)
+            return Error::from_errno(EPIPE);
+        if (bytes_to_write.size() > MAX_MESSAGE_PAYLOAD_SIZE || attachments.size() > MAX_MESSAGE_FD_COUNT)
+            return Error::from_errno(EMSGSIZE);
+        auto const charge = max(bytes_to_write.size(), sizeof(SocketMessageHeader));
+        if (!m_send_budget->try_reserve(charge, descriptor_count))
+            return Error::from_errno(ENOBUFS);
+        reservation = adopt_ref(*new SocketMessageReservation(*m_send_budget, charge, descriptor_count));
+    }
+
     SocketMessageHeader header {
-        .type = SocketMessageHeader::Type::Payload,
+        .type = uses_shared_memory ? SocketMessageHeader::Type::SharedMemoryPayload : SocketMessageHeader::Type::Payload,
         .payload_size = static_cast<u32>(bytes_to_write.size()),
-        .fd_count = static_cast<u32>(attachments.size()),
+        .fd_count = static_cast<u32>(descriptor_count),
     };
 
     RefPtr<AutoCloseFileDescriptor> shared_memory;
-    if (bytes_to_write.size() > MAX_INLINE_PAYLOAD_SIZE) {
+    if (uses_shared_memory) {
         shared_memory = TRY(copy_payload_to_shared_memory(bytes_to_write));
         bytes_to_write.clear();
-        header.type = SocketMessageHeader::Type::SharedMemoryPayload;
-        ++header.fd_count;
     }
 
     Vector<NonnullRefPtr<AutoCloseFileDescriptor>> fds;
@@ -681,7 +740,7 @@ ErrorOr<void> TransportSocket::post_message(MessageDataType bytes_to_write, Vect
     if (shared_memory)
         fds.unchecked_append(shared_memory.release_nonnull());
 
-    bool queue_was_empty = m_send_queue->enqueue_message(header, move(bytes_to_write), move(fds));
+    bool queue_was_empty = TRY(m_send_queue->enqueue_message(header, move(bytes_to_write), move(fds), move(reservation)));
 
     // OPTIMIZATION: The socket takes a message right away unless the peer has fallen far behind, so write it from here
     //               instead of waking the IO thread for each one, which adds a thread hop to the latency of every
@@ -755,6 +814,33 @@ TransportSocket::TransferState TransportSocket::transfer_data(ReadonlyBytes& byt
     return TransferState::Continue;
 }
 
+void TransportSocket::reject_receive_admission()
+{
+    dbgln("TransportSocket: receive budget exhausted, disconnecting peer");
+    m_receive_admission_failed = true;
+    m_peer_eof = true;
+    m_io_thread_state = IOThreadState::Stopped;
+}
+
+void TransportSocket::discard_unprocessed_input()
+{
+    if (!m_receive_budget)
+        return;
+    auto descriptor_count = m_unprocessed_attachments.size();
+    m_unprocessed_bytes.clear();
+    m_unprocessed_attachments.clear();
+    if (descriptor_count != 0)
+        m_receive_budget->release(0, descriptor_count);
+}
+
+void TransportSocket::discard_admitted_messages()
+{
+    if (!m_receive_budget)
+        return;
+    MutexLocker locker(m_incoming_mutex);
+    m_incoming_messages.clear();
+}
+
 // Moves every complete message at the front of the unprocessed bytes, along with its descriptors, into the batch.
 void TransportSocket::parse_unprocessed_messages(Vector<NonnullOwnPtr<Message>>& batch)
 {
@@ -796,7 +882,19 @@ void TransportSocket::parse_unprocessed_messages(Vector<NonnullOwnPtr<Message>>&
                 break;
             if (header.fd_count > m_unprocessed_attachments.size())
                 break;
+            RefPtr<SocketMessageReservation> reservation;
+            if (m_receive_budget) {
+                // Account the logical payload even when it travels as only a shared-memory descriptor. Empty messages
+                // still occupy a queue entry. The descriptors are already charged while in m_unprocessed_attachments.
+                auto charge = max<size_t>(header.payload_size, sizeof(SocketMessageHeader));
+                if (!m_receive_budget->try_reserve(charge, 0)) {
+                    reject_receive_admission();
+                    break;
+                }
+                reservation = adopt_ref(*new SocketMessageReservation(*m_receive_budget, charge, header.fd_count));
+            }
             auto message = make<Message>();
+            message->receive_reservation = move(reservation);
             auto attachment_count = payload_is_in_shared_memory ? header.fd_count - 1 : header.fd_count;
             for (size_t i = 0; i < attachment_count; ++i)
                 message->attachments.enqueue(m_unprocessed_attachments.dequeue());
@@ -914,6 +1012,10 @@ TransportSocket::MoreToRead TransportSocket::read_incoming_messages()
             m_peer_eof = true;
             break;
         }
+        if (m_receive_budget && !received_attachments.is_empty() && !m_receive_budget->try_reserve(0, received_attachments.size())) {
+            reject_receive_admission();
+            break;
+        }
         for (auto& attachment : received_attachments)
             m_unprocessed_attachments.enqueue(move(attachment));
 
@@ -991,6 +1093,8 @@ ErrorOr<TransportHandle> TransportSocket::release_for_transfer()
     TRY(unprocessed_attachments.try_ensure_capacity(m_unprocessed_attachments.size()));
     while (!m_unprocessed_attachments.is_empty())
         unprocessed_attachments.unchecked_append(m_unprocessed_attachments.dequeue());
+    if (m_receive_budget && !unprocessed_attachments.is_empty())
+        m_receive_budget->release(0, unprocessed_attachments.size());
     return TransportHandle { File::adopt_fd(fd), move(m_unprocessed_bytes), move(unprocessed_attachments) };
 }
 
