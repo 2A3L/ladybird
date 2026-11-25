@@ -45,6 +45,7 @@ add_library(ladybird_impl STATIC
     JavaScriptDialog.cpp
     LadybirdButton.cpp
     LocationEdit.cpp
+    Localization.cpp
     Menu.cpp
     NativeTextEditingLineEdit.cpp
     NativeWindowContainer.cpp

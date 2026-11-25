@@ -47,6 +47,8 @@ static StringView config_variable_type_to_string(JsonValue::Type type)
 
 static bool should_show_config_variable(ConfigVariableID id)
 {
+    if (id == ConfigVariableID::InterfaceLanguage)
+        return false;
     // NB: The Debug menu has the toggle for this one.
     if (id == ConfigVariableID::ShowTabPerformanceMonitor)
         return false;

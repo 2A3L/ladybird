@@ -53,6 +53,7 @@ set(ABOUT_SETTINGS_RESOURCES
     dialog-deep-link.js
     feedback.js
     languages.js
+    localization.js
     network.js
     permissions.js
     privacy.js

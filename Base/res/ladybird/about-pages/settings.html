@@ -1,5 +1,5 @@
 <!doctype html>
-<html>
+<html lang="en">
     <head>
         <title>Settings</title>
         <link rel="icon" type="image/png" href="resource://icons/48x48/app-browser.png" />
@@ -977,6 +977,20 @@
             <div class="tab-panel active" id="tab-appearance" data-title="Appearance">
                 <div class="card">
                     <div class="card-body">
+                        <div class="card-group inline-container control-row" data-filter-text="language idioma español english">
+                            <label for="interface-language">
+                                Interface language
+                                <p class="description">The settings page updates now. Restart Ladybird to update the browser controls. Some parts are available only in English.</p>
+                            </label>
+                            <select id="interface-language">
+                                <option value="en">English</option>
+                                <option value="es" lang="es">Español</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-body">
                         <div class="card-group inline-container">
                             <span>Appearance</span>
                             <div id="interface-theme" class="segmented" role="radiogroup" aria-label="Appearance">
@@ -1777,6 +1791,7 @@
         <script src="resource://ladybird/about-pages/settings/content.js" type="module"></script>
         <script src="resource://ladybird/about-pages/settings/feedback.js" type="module"></script>
         <script src="resource://ladybird/about-pages/settings/languages.js" type="module"></script>
+        <script src="resource://ladybird/about-pages/settings/localization.js" type="module"></script>
         <script src="resource://ladybird/about-pages/settings/network.js" type="module"></script>
         <script src="resource://ladybird/about-pages/settings/permissions.js" type="module"></script>
         <script src="resource://ladybird/about-pages/settings/privacy.js" type="module"></script>
@@ -1800,7 +1815,7 @@
             }
 
             function matches(element, query) {
-                return element.textContent.toLocaleLowerCase().includes(query);
+                return element.textContent.toLocaleLowerCase().includes(query) || element.dataset.filterText?.toLocaleLowerCase().includes(query);
             }
 
             // While searching, every section shows the settings whose text matches. A section or a card whose title
