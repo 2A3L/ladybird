@@ -289,19 +289,17 @@ void Cache::add_all(JS::Realm& realm, ReadonlySpan<Fetch::RequestInfo> requests,
         // 6. Run the following substeps in parallel:
         Platform::EventLoopPlugin::the().deferred_invoke(GC::create_function(GC::Heap::the(), GC::captures(realm, fetch_controllers, inner_request, response_promise), [](auto& realm, auto& fetch_controllers, auto& inner_request, auto& response_promise) {
             // * Append the result of fetching r.
-            Fetch::Infrastructure::FetchAlgorithms::Input fetch_algorithms_input { Fetch::Engine::BodyIntent::DeliverStreamToConsumerAgent };
+            Fetch::Infrastructure::FetchAlgorithms::Input fetch_algorithms_input { Fetch::Engine::BodyIntent::ConsumeForCallback };
 
             // * To processResponse for response, run these substeps:
             fetch_algorithms_input.process_response = GC::create_function(GC::Heap::the(), GC::captures(realm, fetch_controllers, response_promise), [](auto& realm, auto& fetch_controllers, auto& response_promise, GC::Ref<Fetch::Infrastructure::ResponseView> response) {
                 HTML::TemporaryExecutionContext context { realm, HTML::TemporaryExecutionContext::CallbacksEnabled::Yes };
-                bool did_reject_promise = false;
 
                 // 1. If response’s type is "error", or response’s status is not an ok status or is 206, reject
                 //    responsePromise with a TypeError.
                 auto status = response->status();
                 if (response->type() == Fetch::Infrastructure::Response::Type::Error || !Fetch::Infrastructure::is_ok_status(status) || status == 206) {
                     WebIDL::reject_promise(response_promise, JS::TypeError::create(realm, "Fetch request failed"_utf16));
-                    did_reject_promise = true;
                 }
                 // 2. Else if response’s header list contains a header named `Vary`, then:
                 else if (response->header_list()->contains("Vary"sv)) {
@@ -313,7 +311,6 @@ void Cache::add_all(JS::Realm& realm, ReadonlySpan<Fetch::RequestInfo> requests,
                         if (field_value == "*"sv) {
                             // 1. Reject responsePromise with a TypeError.
                             WebIDL::reject_promise(response_promise, JS::TypeError::create(realm, "Vary '*' is not supported"_utf16));
-                            did_reject_promise = true;
 
                             // 2. For each fetchController of fetchControllers, abort fetchController.
                             for (auto fetch_controller : fetch_controllers->elements())
@@ -326,24 +323,25 @@ void Cache::add_all(JS::Realm& realm, ReadonlySpan<Fetch::RequestInfo> requests,
                         return IterationDecision::Continue;
                     });
                 }
+            });
 
-                if (did_reject_promise)
-                    return;
+            fetch_algorithms_input.process_response_consume_body = GC::create_function(GC::Heap::the(), GC::captures(realm, response_promise), [](auto& realm, auto& response_promise, GC::Ref<Fetch::Infrastructure::ResponseView> response, Fetch::Infrastructure::FetchAlgorithms::BodyBytes bytes) {
+                HTML::TemporaryExecutionContext context { realm, HTML::TemporaryExecutionContext::CallbacksEnabled::Yes };
 
-                // * To processResponseEndOfBody for response, run these substeps:
-                // FIXME: Spec issue? processResponseEndOfBody is not invoked until the response's body is read, but
-                //        doing so here locks the body's stream, thus cloning the response during batch operations fails.
-                //        So we resolve the pending promise here, which seems to work fine.
-
-                // 1. If response’s aborted flag is set, reject responsePromise with an "AbortError" DOMException and
-                //    abort these steps.
                 if (response->aborted()) {
                     WebIDL::reject_promise(response_promise, WebIDL::AbortError::create("Fetch request was aborted"_utf16));
                     return;
                 }
 
-                // 2. Resolve responsePromise with response.
-                WebIDL::resolve_promise(response_promise, response);
+                if (bytes.has<Fetch::Infrastructure::FetchAlgorithms::ConsumeBodyFailureTag>()) {
+                    WebIDL::reject_promise(response_promise, JS::TypeError::create(realm, "Fetch response body failed"sv));
+                    return;
+                }
+
+                auto record = response->record()->clone();
+                if (auto* body = bytes.get_pointer<Core::ImmutableBytes>())
+                    record->unsafe_response()->set_body(Fetch::Infrastructure::ResponseBody::from_bytes(move(*body)));
+                WebIDL::resolve_promise(response_promise, Fetch::Infrastructure::ResponseView::create(realm, move(record)));
             });
 
             auto fetch_controller = Fetch::Fetching::fetch(realm, inner_request, Fetch::Infrastructure::FetchAlgorithms::create(move(fetch_algorithms_input)));
@@ -417,7 +415,9 @@ void Cache::add_all(JS::Realm& realm, ReadonlySpan<Fetch::RequestInfo> requests,
 
             return JS::js_undefined();
         }),
-        GC::create_function(GC::Heap::the(), GC::captures(promise), [](auto& promise, JS::Value reason) -> WebIDL::ExceptionOr<JS::Value> {
+        GC::create_function(GC::Heap::the(), GC::captures(realm, fetch_controllers, promise), [](auto& realm, auto& fetch_controllers, auto& promise, JS::Value reason) -> WebIDL::ExceptionOr<JS::Value> {
+            for (auto fetch_controller : fetch_controllers->elements())
+                fetch_controller->abort(realm, {});
             WebIDL::reject_promise(promise, reason);
             return JS::js_undefined();
         }));

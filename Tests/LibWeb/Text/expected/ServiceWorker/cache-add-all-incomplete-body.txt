@@ -1,0 +1,6 @@
+incomplete batch rejected: TypeError
+original entry retained: true
+new entry absent: true
+incomplete entry absent: true
+replacement body retained: true
+new body retained: true
