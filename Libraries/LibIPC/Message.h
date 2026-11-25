@@ -68,6 +68,12 @@ public:
 
 protected:
     Message() = default;
+
+#if !defined(AK_OS_MACOS) && !defined(AK_OS_IOS) && !defined(AK_OS_WINDOWS)
+private:
+    friend class ConnectionBase;
+    RefPtr<SocketMessageReservation> m_receive_reservation;
+#endif
 };
 
 }

@@ -102,8 +102,8 @@ TEST_CASE(send_queue_does_not_send_message_bytes_without_fds)
     Vector<NonnullRefPtr<IPC::AutoCloseFileDescriptor>> second_fds;
     second_fds.append(open_descriptor());
 
-    queue->enqueue_message({}, move(first_payload), move(first_fds));
-    queue->enqueue_message({}, move(second_payload), move(second_fds));
+    (void)MUST(queue->enqueue_message({}, move(first_payload), move(first_fds)));
+    (void)MUST(queue->enqueue_message({}, move(second_payload), move(second_fds)));
 
     auto first_batch = queue->peek(4096);
     EXPECT_EQ(first_batch.bytes.size(), sizeof(IPC::SocketMessageHeader) + 1);
@@ -135,7 +135,7 @@ TEST_CASE(send_queue_sends_descriptors_that_do_not_fit_one_sendmsg_ahead_of_thei
         .payload_size = 1,
         .fd_count = fd_count,
     };
-    queue->enqueue_message(header, move(payload), move(fds));
+    (void)MUST(queue->enqueue_message(header, move(payload), move(fds)));
 
     auto expect_header = [](ReadonlyBytes bytes, IPC::SocketMessageHeader::Type type, u32 payload_size, u32 fd_count) {
         IPC::SocketMessageHeader header;
@@ -203,6 +203,87 @@ static bool descriptor_is_open(int fd)
 {
     return fcntl(fd, F_GETFD) >= 0;
 }
+
+#if defined(AK_OS_LINUX)
+TEST_CASE(socket_send_admission_keeps_shared_bytes_charged_until_sent_or_closed)
+{
+    constexpr size_t inline_size = IPC::TransportSocket::MAX_INLINE_PAYLOAD_SIZE;
+    constexpr size_t shared_size = inline_size + 1;
+    auto pool = adopt_ref(*new IPC::SocketMessageBudget({ inline_size + shared_size, 1 }));
+    IPC::TransportSocket::AdmissionOptions options {
+        .receive = {},
+        .send = IPC::TransportSocket::AdmissionLimits { { inline_size + shared_size, 1 }, pool },
+    };
+
+    auto make_blocked_pair = [&] {
+        int fds[2] {};
+        MUST(Core::System::socketpair(AF_LOCAL, SOCK_STREAM | SOCK_CLOEXEC, 0, fds));
+        auto send_socket = MUST(Core::LocalSocket::adopt_fd(fds[0]));
+        MUST(send_socket->set_blocking(false));
+        auto sender = MUST(IPC::TransportSocket::from_socket(move(send_socket), options));
+        // Only the inline message can start sending before the peer starts reading. The shared message stays queued.
+        int send_buffer = 4 * KiB;
+        MUST(Core::System::setsockopt(fds[0], SOL_SOCKET, SO_SNDBUF, &send_buffer, sizeof(send_buffer)));
+        return IPC::TransportSocket::Paired { move(sender), IPC::TransportHandle { IPC::File::adopt_fd(fds[1]) } };
+    };
+    Vector<IPC::Attachment> attachments;
+    auto post = [&](IPC::TransportSocket& sender, size_t size, u8 tag) {
+        IPC::MessageDataType payload;
+        payload.resize(size);
+        payload[0] = tag;
+        return sender.post_message(move(payload), attachments);
+    };
+    auto queue_two_messages = [&](IPC::TransportSocket& sender) {
+        MUST(post(sender, inline_size, 'A'));
+        MUST(post(sender, shared_size, 'B'));
+    };
+    auto expect_no_capacity = [](ErrorOr<void> result) {
+        VERIFY(result.is_error());
+        EXPECT(result.error().is_errno() && result.error().code() == ENOBUFS);
+    };
+
+    auto blocked = make_blocked_pair();
+    queue_two_messages(*blocked.local);
+    auto other = TRY_OR_FAIL(IPC::TransportSocket::create_paired(options));
+    auto other_receiver = TRY_OR_FAIL(other.remote_handle.create_transport());
+    expect_no_capacity(post(*other.local, 1, 'X'));
+    EXPECT(other.local->is_open());
+
+    auto receiver = TRY_OR_FAIL(blocked.remote_handle.create_transport());
+    blocked.local->flush();
+    receiver->wait_until_incoming_is_current();
+    Vector<u8> received;
+    (void)receiver->read_as_many_messages_as_possible_without_blocking([&](auto&& message) {
+        auto bytes = message.bytes.bytes();
+        EXPECT_EQ(bytes.size(), received.is_empty() ? inline_size : shared_size);
+        received.append(bytes[0]);
+    });
+    EXPECT_EQ(received, (Vector<u8> { 'A', 'B' }));
+
+    auto fd = TRY_OR_FAIL(Core::System::open("/dev/null"sv, O_RDONLY | O_CLOEXEC));
+    attachments.append(IPC::Attachment::from_fd(fd));
+    // The file and the shared payload's backing descriptor each use a slot, before either is queued.
+    expect_no_capacity(post(*other.local, shared_size, 'X'));
+    EXPECT(descriptor_is_open(fd));
+    attachments.clear();
+    TRY_OR_FAIL(post(*other.local, shared_size, 'C'));
+    other.local->flush();
+
+    auto closing = make_blocked_pair();
+    queue_two_messages(*closing.local);
+    closing.local->close();
+    TRY_OR_FAIL(post(*other.local, shared_size, 'D'));
+    other.local->flush();
+    other_receiver->wait_until_incoming_is_current();
+    received.clear();
+    (void)other_receiver->read_as_many_messages_as_possible_without_blocking([&](auto&& message) {
+        auto bytes = message.bytes.bytes();
+        EXPECT_EQ(bytes.size(), shared_size);
+        received.append(bytes[0]);
+    });
+    EXPECT_EQ(received, (Vector<u8> { 'C', 'D' }));
+}
+#endif
 
 // The kernel holds its own reference to a file once its descriptor is written, so the sender's copy is closed then.
 TEST_CASE(a_sent_descriptor_is_closed_once_written)
