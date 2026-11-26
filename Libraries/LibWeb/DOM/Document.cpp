@@ -6439,8 +6439,10 @@ void Document::destroy()
     //         took part in, so that the ports at their other ends learn that nothing arrives any more. A window that
     //         was reused for another document, or that the document created once this one is unloaded takes over, keeps
     //         its ports. The specification once did this here, as steps of destroying a document, and no longer does.
-    if (auto window = this->window(); window && &window->associated_document() == this && !m_window_is_taken_over_after_unload)
+    if (auto window = this->window(); window && &window->associated_document() == this && !m_window_is_taken_over_after_unload) {
         HTML::MessagePort::disentangle_ports_of_realm(HTML::relevant_realm(*window));
+        page().client().cancel_cache_storage_requests(HTML::relevant_settings_object(*window).id);
+    }
 
     // 4. Run any unloading document cleanup steps for document that are defined by this specification and other applicable specifications.
     run_unloading_cleanup_steps();

@@ -106,6 +106,7 @@
 #include <LibWebCommon/Page/WritingSuggestion.h>
 #include <LibWebCommon/Permissions/Permissions.h>
 #include <LibWebCommon/PixelUnits.h>
+#include <LibWebCommon/ServiceWorker/CacheStorageProtocol.h>
 #include <LibWebCommon/StorageAPI/StorageEndpoint.h>
 #include <LibWebCommon/UIEvents/KeyCode.h>
 #include <LibWebCommon/WebView/StorageSetResult.h>
@@ -930,6 +931,16 @@ public:
     virtual bool page_did_is_known_hsts_host(String const&) { return false; }
     virtual u64 page_did_request_storage_usage([[maybe_unused]] Web::HTML::EnvironmentId const& environment_id) { return {}; }
 
+    using CacheStorageCallback = GC::Function<void(ServiceWorker::CacheStorageIPC::Reply)>;
+    // Returns an immediate failure without invoking the callback. Only Release may omit a callback.
+    [[nodiscard]] Optional<ServiceWorker::CacheStorageIPC::StorageError> request_cache_storage(HTML::EnvironmentId const&, ServiceWorker::CacheStorageIPC::Request, GC::Ptr<CacheStorageCallback> = {});
+    void did_receive_cache_storage_reply(ServiceWorker::CacheStorageIPC::RequestId, ServiceWorker::CacheStorageIPC::Reply);
+    // The cancellation callback performs native cleanup synchronously and must not run script.
+    ErrorOr<u64> register_cache_storage_preparation(HTML::EnvironmentId const&, GC::Ref<GC::Function<void()>>);
+    void unregister_cache_storage_preparation(u64);
+    void cancel_cache_storage_requests(HTML::EnvironmentId const&);
+    void clear_cache_storage_requests();
+
     virtual URL::BlobURLEntry::Token page_did_add_blob_url_entry(HTML::EnvironmentSettingsObject const&, [[maybe_unused]] Utf16String const& url, [[maybe_unused]] FileAPI::SerializedBlobURLEntry const& entry) { return 0; }
     virtual void page_did_remove_blob_url_entries(HTML::EnvironmentSettingsObject const&, [[maybe_unused]] Vector<Utf16String> const& urls) { }
     virtual void page_did_retain_blob_url_token([[maybe_unused]] HTML::CrossProcessId navigable_id, [[maybe_unused]] URL::BlobURLEntry::Token token) { }
@@ -1103,6 +1114,31 @@ public:
 
 protected:
     virtual ~PageClient() = default;
+    virtual void visit_edges(Visitor&) override;
+
+private:
+    virtual ErrorOr<void> send_cache_storage_request(HTML::EnvironmentId const&, ServiceWorker::CacheStorageIPC::RequestId, ServiceWorker::CacheStorageIPC::Request&&);
+    void drain_queued_cache_storage_reads();
+    void cancel_cache_storage_preparations(HTML::EnvironmentId const*);
+
+    struct CacheStoragePreparation {
+        HTML::EnvironmentId environment_id;
+        GC::Ref<GC::Function<void()>> cancel;
+    };
+    HashMap<u64, CacheStoragePreparation> m_cache_storage_preparations;
+    u64 m_next_cache_storage_preparation_id { 1 };
+
+    struct PendingCacheStorageRequest {
+        HTML::EnvironmentId environment_id;
+        GC::Ptr<CacheStorageCallback> callback;
+        size_t reserved_bytes;
+        Optional<ServiceWorker::CacheStorageIPC::CacheId> queued_read;
+    };
+    HashMap<ServiceWorker::CacheStorageIPC::RequestId, PendingCacheStorageRequest> m_pending_cache_storage_requests;
+    Vector<ServiceWorker::CacheStorageIPC::RequestId> m_queued_cache_storage_reads;
+    size_t m_pending_cache_storage_bytes { 0 };
+    u64 m_next_cache_storage_request_id { 1 };
+    bool m_draining_cache_storage_reads { false };
 };
 
 }

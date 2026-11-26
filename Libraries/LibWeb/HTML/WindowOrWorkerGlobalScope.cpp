@@ -1492,7 +1492,7 @@ GC::Ref<Crypto::Crypto> WindowOrWorkerGlobalScopeMixin::crypto()
 GC::Ref<ServiceWorker::CacheStorage> WindowOrWorkerGlobalScopeMixin::caches()
 {
     if (!m_cache_storage)
-        m_cache_storage = GC::Heap::the().allocate<ServiceWorker::CacheStorage>();
+        m_cache_storage = GC::Heap::the().allocate<ServiceWorker::CacheStorage>(relevant_settings_object(*this));
     return GC::Ref { *m_cache_storage };
 }
 

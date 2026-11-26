@@ -21,6 +21,7 @@
 #include <LibWebView/ViewImplementation.h>
 #include <LibWebView/WebContentClient.h>
 #include <LibWebView/WebDriverBiDi.h>
+#include <LibWebView/WorkerAgentManager.h>
 
 namespace WebView {
 
@@ -578,6 +579,7 @@ void CanonicalTraversable::remove(CanonicalNavigable& navigable)
     auto* parent = navigable.parent();
     VERIFY(parent);
     (void)parent->remove_child(navigable);
+    WorkerAgentManager::the().revoke_invalid_cache_storage_grants();
     if (host)
         release_page_if_unused(*host);
 

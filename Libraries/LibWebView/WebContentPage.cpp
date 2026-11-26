@@ -19,6 +19,8 @@
 #include <LibWebView/Application.h>
 #include <LibWebView/BlobURLStore.h>
 #include <LibWebView/BrowsingSession.h>
+#include <LibWebView/CacheStorageLeaseRegistry.h>
+#include <LibWebView/CacheStoragePartition.h>
 #include <LibWebView/CanonicalBrowsingContext.h>
 #include <LibWebView/CanonicalBrowsingContextGroup.h>
 #include <LibWebView/CanonicalDocument.h>
@@ -167,7 +169,82 @@ WebContentPage::WebContentPage(WebContentClient& client, Web::PageId id, Canonic
 {
 }
 
-WebContentPage::~WebContentPage() = default;
+WebContentPage::~WebContentPage()
+{
+    CacheStorageLeaseRegistry::the().remove_owner({ CacheStorageOwner::Kind::Page, this });
+}
+
+void WebContentPage::cache_storage_request(Web::HTML::EnvironmentId environment_id, Web::ServiceWorker::CacheStorageIPC::RequestId request_id, Web::ServiceWorker::CacheStorageIPC::Request request)
+{
+    using namespace Web::ServiceWorker::CacheStorageIPC;
+    auto* connection = routed_connection();
+    if (!connection || !connection->is_open())
+        return;
+    auto& session = client().session();
+    // Without a store in the page's session, nothing is looked up for the request.
+    Reply reply = StorageError::Unavailable;
+    if (session.cache_storage_store()) {
+        reply = StorageError::Denied;
+        if (auto environment = hosted_environment(environment_id); environment.has_value()) {
+            // The registry authorizes a release by ownership alone, so a document that is no longer active can still
+            // return its leases.
+            Optional<String> key;
+            if (!request.has<Release>())
+                key = cache_storage_partition_key_for_active_environment(*environment);
+            if (key.has_value() || request.has<Release>())
+                reply = CacheStorageLeaseRegistry::the().dispatch({ CacheStorageOwner::Kind::Page, this }, session, *environment, key, request);
+        }
+    }
+    auto send_reply = [&]() -> ErrorOr<void> {
+        auto message = TRY(Messages::WebContentServer::CacheStorageReply::static_encode(id(), request_id, reply));
+        return connection->post_message(message);
+    };
+    if (auto result = send_reply(); result.is_error()) {
+        dbgln("Could not send Cache Storage reply: {}", result.error());
+        // A failed reply cannot settle the peer's request. Closing the connection also revokes its page leases.
+        RefPtr protected_page = this;
+        RefPtr protected_connection = connection;
+        protected_connection->shutdown();
+    }
+}
+
+Optional<String> WebContentPage::cache_storage_partition_key_for_active_environment(CanonicalEnvironmentSettingsObject const& environment) const
+{
+    if (!has_traversable() || !is_open() || !client().is_open())
+        return {};
+    Optional<String> key;
+    // Only active documents with a complete, current chain of active containers can use the shared store.
+    traversable().for_each_in_inclusive_subtree([&](CanonicalNavigable const& navigable) {
+        auto const& document = navigable.active_document();
+        if (!traversable().hosts(navigable, *this) || document.host() != this
+            || &document.relevant_global_object().relevant_settings_object() != &environment)
+            return IterationDecision::Continue;
+
+        Vector<URL::Origin> origins;
+        auto const* current = &navigable;
+        while (current) {
+            auto const& active_document = current->active_document();
+            if (!active_document.host() || !active_document.host()->is_open()
+                || active_document.browsing_context().has_been_discarded()
+                || active_document.browsing_context().active_document().ptr() != &active_document
+                || !active_document.relevant_global_object().has_associated_document()
+                || &active_document.relevant_global_object().associated_document() != &active_document
+                || origins.try_append(active_document.origin()).is_error())
+                return IterationDecision::Break;
+            auto const* parent = current->parent();
+            if (parent && current->container_document() != &parent->active_document())
+                return IterationDecision::Break;
+            if (!parent && current != &traversable())
+                return IterationDecision::Break;
+            current = parent;
+        }
+        if (cache_storage_origins_are_secure(origins.span())
+            && cache_storage_creation_url_is_secure(environment.top_level_creation_url()))
+            key = cache_storage_partition_key(environment, navigable.active_document_has_cross_site_ancestor());
+        return IterationDecision::Break;
+    });
+    return key;
+}
 
 WebContentServerProxy* WebContentPage::routed_proxy() const
 {
@@ -667,6 +744,7 @@ void WebContentPage::fail_renderer_owned_downloads()
 
 void WebContentPage::close()
 {
+    CacheStorageLeaseRegistry::the().remove_owner({ CacheStorageOwner::Kind::Page, this });
     if (m_traversable) {
         if (auto view = m_traversable->view(); view.has_value())
             Application::the().media_session_coordinator().remove({ view->view_id(), m_id, view->is_private() == IsPrivate::Yes });
@@ -674,6 +752,7 @@ void WebContentPage::close()
     PictureInPictureManager::the().close_window(*this);
     NotificationManager::the().page_did_close(*this);
     m_is_open = false;
+    WorkerAgentManager::the().revoke_invalid_cache_storage_grants();
     // NB: The process can outlive the page, for the shared workers it runs, or for other pages.
     if (m_client) {
         WorkerAgentManager::the().remove_web_content_page_owner(*m_client, m_id);

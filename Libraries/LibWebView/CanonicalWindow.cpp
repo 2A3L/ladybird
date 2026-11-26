@@ -4,6 +4,7 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <LibWebView/CacheStorageLeaseRegistry.h>
 #include <LibWebView/CanonicalBrowsingContextGroup.h>
 #include <LibWebView/CanonicalDocument.h>
 #include <LibWebView/CanonicalEnvironmentSettingsObject.h>
@@ -21,7 +22,11 @@ CanonicalWindow::CanonicalWindow(NonnullRefPtr<CanonicalSimilarOriginWindowAgent
 {
 }
 
-CanonicalWindow::~CanonicalWindow() = default;
+CanonicalWindow::~CanonicalWindow()
+{
+    if (m_relevant_settings_object)
+        CacheStorageLeaseRegistry::the().remove_environment(*m_relevant_settings_object);
+}
 
 CanonicalEnvironmentSettingsObject const& CanonicalWindow::relevant_settings_object() const
 {

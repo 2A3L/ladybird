@@ -63,6 +63,7 @@ namespace WebView {
 
 class WEBVIEW_API WebContentPage final
     : public RefCounted<WebContentPage>
+    , public Weakable<WebContentPage>
     , public WebContentClientPageStub
     , public WebContentTestClientPageStub
     , public WebContentServerPageProxy {
@@ -76,6 +77,8 @@ class WEBVIEW_API WebContentPage final
 public:
     WebContentPage(WebContentClient&, Web::PageId, CanonicalTraversable&);
     virtual ~WebContentPage() override;
+
+    virtual void cache_storage_request(Web::HTML::EnvironmentId, Web::ServiceWorker::CacheStorageIPC::RequestId, Web::ServiceWorker::CacheStorageIPC::Request) override;
 
     WebContentClient& client() const;
     Web::PageId id() const { return m_id; }
@@ -92,6 +95,8 @@ public:
     Optional<CanonicalNavigable&> hosted_navigable(Web::HTML::CrossProcessId) const;
     bool hosts_active_document_of(CanonicalNavigable const&) const;
     Optional<CanonicalEnvironmentSettingsObject const&> hosted_environment(Web::HTML::EnvironmentId const& environment_id) const;
+    Optional<String> cache_storage_partition_key_for_active_environment(CanonicalEnvironmentSettingsObject const&) const;
+    Optional<CanonicalDocument&> document_with_hosted_environment(Web::HTML::EnvironmentId const& environment_id) const;
 
     // Whether the document of an environment the page hosts has a cross-site ancestor, or nothing if the page hosts no
     // such environment.
@@ -197,7 +202,6 @@ private:
     bool holds_container_of(CanonicalNavigable const& child_frame, StringView message_name);
     bool continue_navigation_population_in_selected_process(Web::HTML::CrossProcessId navigable_id, Utf16String navigation_id);
     void for_each_hosted_document(Function<IterationDecision(CanonicalDocument&)> const&) const;
-    Optional<CanonicalDocument&> document_with_hosted_environment(Web::HTML::EnvironmentId const& environment_id) const;
     StorageJar* storage_jar(Web::StorageAPI::StorageEndpointType) const;
     Optional<String> canonical_storage_key(Web::HTML::EnvironmentId const&) const;
     struct ViewPosition {

@@ -190,6 +190,15 @@ void ConnectionFromClient::die()
     begin_closing();
 }
 
+void ConnectionFromClient::cache_storage_reply(Web::ServiceWorker::CacheStorageIPC::RequestId request_id, Web::ServiceWorker::CacheStorageIPC::Reply reply)
+{
+    if (!m_page_host || m_was_told_to_close || m_lost_browser_connection)
+        return;
+    if (auto scope = m_worker_host ? m_worker_host->global_scope() : nullptr; scope && scope->is_closing())
+        return;
+    m_page_host->did_receive_cache_storage_reply(request_id, move(reply));
+}
+
 void ConnectionFromClient::did_lose_peer_during_sync_request()
 {
     // NB: Whatever made the request cannot be unwound from here, and a thread cannot take its process with it. So, the
@@ -248,6 +257,8 @@ void ConnectionFromClient::release_agent_state()
     m_request_server_died_callback_for_testing = nullptr;
     if (m_compositor_connection)
         m_compositor_connection->on_compositor_lost = nullptr;
+    if (m_page_host)
+        m_page_host->clear_cache_storage_requests();
     m_page_host = nullptr;
 }
 

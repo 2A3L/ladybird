@@ -21,6 +21,7 @@
 #include <LibWebCommon/HTML/WorkerAgentTypes.h>
 #include <LibWebView/BlobURLStore.h>
 #include <LibWebView/BrowsingSession.h>
+#include <LibWebView/CacheStoragePartition.h>
 #include <LibWebView/Export.h>
 #include <LibWebView/RequestServerSiteBindings.h>
 #include <WebContent/WebWorkerClientEndpoint.h>
@@ -54,13 +55,17 @@ public:
 
     Optional<CanonicalEnvironmentSettingsObject const&> hosted_environment(Web::HTML::EnvironmentId const& environment_id) const;
 
-    void set_inside_settings(NonnullOwnPtr<CanonicalWorkerEnvironmentSettingsObject>, Vector<LocalFileRoot> local_file_roots);
+    void set_inside_settings(NonnullOwnPtr<CanonicalWorkerEnvironmentSettingsObject>, Vector<LocalFileRoot> local_file_roots, Optional<CacheStorageWorkerGrant> cache_storage_grant = {});
+    Optional<String> cache_storage_partition_grant(CanonicalEnvironmentSettingsObject const&) const;
+    void revoke_invalid_cache_storage_grant();
+    bool has_cache_storage_grant() const { return m_cache_storage_grant.has_value(); }
     CanonicalWorkerEnvironmentSettingsObject const* inside_settings() const { return m_inside_settings.ptr(); }
     void forget_inside_settings_of_closing_worker();
     Optional<URL::Origin> const& top_level_origin() const { return m_top_level_origin; }
     Vector<LocalFileRoot> const& local_file_roots() const { return m_local_file_roots; }
     void keep_script_blob_url_until_script_loads(BlobURLHandle handle) { m_script_blob_url = move(handle); }
 
+    virtual void cache_storage_request(Web::HTML::EnvironmentId, Web::ServiceWorker::CacheStorageIPC::RequestId, Web::ServiceWorker::CacheStorageIPC::Request) override;
     virtual void did_close_worker() override;
     virtual void did_close_shared_worker() override;
     virtual void did_finish_loading_worker_script(bool worker_is_secure_context) override;
@@ -96,6 +101,7 @@ private:
     Vector<URL::Origin> m_permission_origins;
 
     OwnPtr<CanonicalWorkerEnvironmentSettingsObject> m_inside_settings;
+    Optional<CacheStorageWorkerGrant> m_cache_storage_grant;
     Optional<URL::Origin> m_top_level_origin;
     Vector<LocalFileRoot> m_local_file_roots;
     // Keeps the blob URL entry of the worker's script alive until the script is loaded, so that the owner can

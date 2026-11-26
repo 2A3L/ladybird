@@ -9,16 +9,20 @@
 #include <AK/Optional.h>
 #include <AK/String.h>
 #include <LibGC/Function.h>
+#include <LibGC/Weak.h>
 #include <LibWeb/Bindings/CacheStorage.h>
 #include <LibWeb/Bindings/Wrappable.h>
 #include <LibWeb/Fetch/Request.h>
 #include <LibWeb/ServiceWorker/NameToCacheMap.h>
 #include <LibWeb/WebIDL/Promise.h>
+#include <LibWebCommon/ServiceWorker/CacheStorageProtocol.h>
 
 namespace Web::ServiceWorker {
 
 using CacheQueryOptions = Bindings::CacheQueryOptions;
 using MultiCacheQueryOptions = Bindings::MultiCacheQueryOptions;
+
+class CacheBodyStaging;
 
 // https://w3c.github.io/ServiceWorker/#dfn-cache-batch-operation
 struct CacheBatchOperation : public GC::Cell {
@@ -61,7 +65,13 @@ public:
     void keys(JS::Realm&, Optional<Fetch::RequestInfo>, CacheQueryOptions, GC::Ref<WebIDL::Promise>);
 
 private:
+    friend class CacheStorage;
+
     explicit Cache(GC::Ref<RequestResponseList>);
+    Cache(HTML::EnvironmentSettingsObject&, CacheStorageIPC::CacheId);
+    void release_remote_lease();
+
+    virtual void finalize() override;
 
     virtual void visit_edges(GC::Cell::Visitor&) override;
 
@@ -69,10 +79,22 @@ private:
         No,
         Yes,
     };
-    GC::Ref<RequestResponseList> query_cache(JS::Realm&, NonnullRefPtr<Fetch::Infrastructure::Request> request_query, CacheQueryOptions options = {}, GC::Ptr<RequestResponseList> = {}, CloneCache = Cache::CloneCache::Yes);
-    WebIDL::ExceptionOr<bool> batch_cache_operations(JS::Realm&, GC::Ref<GC::HeapVector<GC::Ref<CacheBatchOperation>>>);
+    enum class BatchResult {
+        Undefined,
+        Removed,
+    };
+    using BatchOperations = GC::HeapVector<GC::Ref<CacheBatchOperation>>;
+    using SnapshotCallback = GC::Function<void(GC::Ref<RequestResponseList>, CacheStorageIPC::Revision)>;
 
-    GC::Ref<RequestResponseList> m_request_response_list;
+    void read_snapshot(GC::Ref<WebIDL::Promise>, GC::Ref<SnapshotCallback>, RefPtr<CacheBodyStaging> = {});
+    void run_cache_batch(JS::Realm&, GC::Ref<BatchOperations>, GC::Ref<WebIDL::Promise>, BatchResult, RefPtr<CacheBodyStaging> = {}, unsigned retries_remaining = 3);
+    void settle_cache_batch(JS::Realm&, GC::Ref<WebIDL::Promise>, BatchResult, WebIDL::ExceptionOr<bool>) const;
+    static GC::Ref<RequestResponseList> query_cache(JS::Realm&, GC::Ref<RequestResponseList>, NonnullRefPtr<Fetch::Infrastructure::Request> request_query, CacheQueryOptions, CloneCache = CloneCache::Yes);
+    static WebIDL::ExceptionOr<bool> batch_cache_operations(JS::Realm&, GC::Ref<RequestResponseList>, GC::Ref<BatchOperations>);
+
+    GC::Ptr<RequestResponseList> m_request_response_list;
+    GC::Weak<HTML::EnvironmentSettingsObject> m_owner;
+    Optional<CacheStorageIPC::CacheId> m_remote_id;
 };
 
 }

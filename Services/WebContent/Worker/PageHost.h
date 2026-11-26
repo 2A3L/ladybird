@@ -71,6 +71,7 @@ public:
 private:
     explicit PageHost(ConnectionFromClient&);
     virtual void visit_edges(JS::Cell::Visitor&) override;
+    virtual ErrorOr<void> send_cache_storage_request(Web::HTML::EnvironmentId const&, Web::ServiceWorker::CacheStorageIPC::RequestId, Web::ServiceWorker::CacheStorageIPC::Request&&) override;
 
     void setup_palette();
 
