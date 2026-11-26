@@ -11,6 +11,7 @@
 #include <UI/Qt/Menu.h>
 
 #include <QAction>
+#include <QCoreApplication>
 #include <QMenu>
 #include <QPushButton>
 #include <QWidget>
@@ -150,4 +151,18 @@ TEST_CASE(interface_language_changes_while_running)
     Ladybird::apply_interface_language("es"sv);
     expect_language(QStringLiteral("Recargar"), QStringLiteral("Recargar sin caché"), QStringLiteral("Marcadores"), QStringLiteral("Ayuda"), QStringLiteral("Restablecer zoom"));
     Ladybird::apply_interface_language("en"sv);
+}
+
+TEST_CASE(qt_translations_come_from_the_interface_catalog)
+{
+    use_shipped_catalogs();
+    Ladybird::apply_interface_language("es"sv);
+    EXPECT(QCoreApplication::translate("QObject", "Reload") == QStringLiteral("Recargar"));
+    EXPECT(QCoreApplication::translate("Ladybird::BrowserWindow", "Reload") == QStringLiteral("Recargar"));
+    EXPECT(QCoreApplication::translate("QObject", "Not in the catalog") == QStringLiteral("Not in the catalog"));
+    // Qt's own widgets keep their text.
+    EXPECT(QCoreApplication::translate("QLineEdit", "Select All") == QStringLiteral("Select All"));
+    EXPECT(QCoreApplication::translate("QShortcut", "Back") == QStringLiteral("Back"));
+    Ladybird::apply_interface_language("en"sv);
+    EXPECT(QCoreApplication::translate("QObject", "Reload") == QStringLiteral("Reload"));
 }

@@ -13,6 +13,7 @@
 #include <UI/Qt/Application.h>
 #include <UI/Qt/ApplicationActions.h>
 #include <UI/Qt/HubConnection.h>
+#include <UI/Qt/Localization.h>
 #include <UI/Qt/Tab.h>
 
 #include <QApplication>
@@ -434,6 +435,8 @@ void ApplicationActions::config_variable_changed(WebView::ConfigVariableID varia
         m_debug_menu->set_visible(settings.config_variable_as_bool(WebView::ConfigVariableID::ShowAdvancedDebugMenu));
     if (variable == WebView::ConfigVariableID::ShowTabPerformanceMonitor)
         m_show_tab_performance_monitor_action->set_checked(settings.config_variable_as_bool(WebView::ConfigVariableID::ShowTabPerformanceMonitor));
+    if (variable == WebView::ConfigVariableID::InterfaceLanguage)
+        apply_interface_language(settings.config_variable(WebView::ConfigVariableID::InterfaceLanguage).as_string());
 }
 
 }
