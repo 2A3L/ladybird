@@ -1,3 +1,5 @@
+import { onInterfaceLanguageChange, t } from "../l10n.js";
+
 const restorePreviousSession = document.querySelector("#restore-previous-session");
 const newTabPageURL = document.querySelector("#new-tab-page-url");
 const newTabPageURLReset = document.querySelector("#new-tab-page-url-reset");
@@ -16,11 +18,22 @@ let defaultBrowser;
 // Why the last attempt to make Ladybird the default browser failed, which is shown in place of the status.
 let defaultBrowserFailure = null;
 
+// The browser reports why in English, and may add what the system reported.
+const translateFailure = failure => {
+    const reported = failure.match(/^Could not make Ladybird the default browser\. The system reported: (.*)$/s);
+    if (reported) return t("Could not make Ladybird the default browser. The system reported: {0}", [reported[1]]);
+    return t(failure);
+};
+
 const updateDefaultBrowser = () => {
     const canMakeDefault = defaultBrowser === "not-default";
 
     defaultBrowserGroup.classList.toggle("hidden", !defaultBrowser);
-    defaultBrowserStatus.textContent = defaultBrowserFailure ?? DEFAULT_BROWSER_STATUS[defaultBrowser] ?? "";
+    defaultBrowserStatus.textContent = defaultBrowserFailure
+        ? translateFailure(defaultBrowserFailure)
+        : DEFAULT_BROWSER_STATUS[defaultBrowser]
+          ? t(DEFAULT_BROWSER_STATUS[defaultBrowser])
+          : "";
     makeDefaultBrowser.classList.toggle("hidden", !canMakeDefault);
 
     // A control row is filled under the pointer, and a click anywhere on it reaches the control its label names. This
@@ -90,6 +103,8 @@ newTabPageURLReset.addEventListener("click", () => {
     newTabPageURL.value = newTabPageURL.placeholder;
     newTabPageURL.dispatchEvent(new Event("change"));
 });
+
+onInterfaceLanguageChange(updateDefaultBrowser);
 
 document.addEventListener("WebUIMessage", event => {
     if (event.detail.name === "loadSettings") {

@@ -66,6 +66,7 @@ set(SOURCES
     PixelUnits.cpp
     ReferrerPolicy/ReferrerPolicy.cpp
     SecureContexts/AbstractOperations.cpp
+    ServiceWorker/CacheStorageProtocolTypes.cpp
     StorageAPI/StorageEndpoint.cpp
     StorageAPI/StorageKey.cpp
     UpgradeInsecureRequests/InsecureRequestsPolicy.cpp
@@ -124,6 +125,8 @@ compile_ipc(Page/InputRoutingDecision.ipc Page/InputRoutingDecisionCodecs.h)
 compile_ipc(Page/InputTrace.ipc Page/InputTraceCodecs.h)
 compile_ipc(Page/TextEditingCommand.ipc Page/TextEditingCommandCodecs.h)
 compile_ipc(PixelUnits.ipc PixelUnitsCodecs.h)
+file(MAKE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/ServiceWorker")
+compile_ipc(ServiceWorker/CacheStorageProtocol.ipc ServiceWorker/CacheStorageProtocol.h)
 compile_ipc(UIEvents/KeyCode.ipc UIEvents/KeyCodeCodecs.h)
 compile_ipc(UIEvents/MouseButton.ipc UIEvents/MouseButtonCodecs.h)
 compile_ipc(UpgradeInsecureRequests/InsecureRequestsPolicy.ipc UpgradeInsecureRequests/InsecureRequestsPolicyCodecs.h)

@@ -8,15 +8,16 @@
 #include <AK/StdLibExtras.h>
 #include <AK/StringBuilder.h>
 #include <AK/StringView.h>
+#include <LibWebView/Localization.h>
 #include <UI/Qt/DownloadPresentation.h>
 
 namespace Ladybird {
 
 static constexpr auto max_visible_downloads_in_popover = 5uz;
 
-static String download_count_text(u64 count, StringView singular, StringView plural)
+static String plural_text(u64 count, StringView singular, StringView plural)
 {
-    return MUST(String::formatted("{} {}", count, count == 1 ? singular : plural));
+    return WebView::translate(WebView::ui_plural(static_cast<i64>(count), singular, plural));
 }
 
 static String download_percent_text(double progress)
@@ -72,17 +73,17 @@ String download_time_remaining_text(AK::Duration time_remaining)
     auto seconds = time_remaining.to_seconds();
 
     if (seconds < 60)
-        return MUST(String::formatted("{} left", download_count_text(max(seconds, static_cast<i64>(1)), "second"sv, "seconds"sv)));
+        return plural_text(max(seconds, static_cast<i64>(1)), "{0} second left"sv, "{0} seconds left"sv);
 
     auto total_minutes = (seconds + 59) / 60;
     if (total_minutes < 60)
-        return MUST(String::formatted("{} left", download_count_text(total_minutes, "minute"sv, "minutes"sv)));
+        return plural_text(total_minutes, "{0} minute left"sv, "{0} minutes left"sv);
 
     auto hours = total_minutes / 60;
     auto minutes = total_minutes % 60;
     if (minutes == 0)
-        return MUST(String::formatted("{} left", download_count_text(hours, "hour"sv, "hours"sv)));
-    return MUST(String::formatted("{} {} left", download_count_text(hours, "hour"sv, "hours"sv), download_count_text(minutes, "minute"sv, "minutes"sv)));
+        return plural_text(hours, "{0} hour left"sv, "{0} hours left"sv);
+    return WebView::translate(WebView::ui_text("{0} {1} left"sv, { plural_text(hours, "{0} hour"sv, "{0} hours"sv), plural_text(minutes, "{0} minute"sv, "{0} minutes"sv) }));
 }
 
 String download_status_text(WebView::FileDownloader::Download const& download)
@@ -94,18 +95,18 @@ String download_status_text(WebView::FileDownloader::Download const& download)
     auto downloaded_size_text = [&]() {
         if (download.total_size.has_value() && *download.total_size > 0) {
             auto unit = unit_for_download_size(*download.total_size);
-            return MUST(String::formatted("{} of {} {}",
-                unitless_download_size_text(min(download.downloaded_size, *download.total_size), unit),
-                unitless_download_size_text(*download.total_size, unit),
-                unit.suffix));
+            return WebView::translate(WebView::ui_text("{0} of {1} {2}"sv,
+                { unitless_download_size_text(min(download.downloaded_size, *download.total_size), unit),
+                    unitless_download_size_text(*download.total_size, unit),
+                    MUST(String::from_utf8(unit.suffix)) }));
         }
-        return MUST(String::formatted("{} downloaded", download_size_text(download.downloaded_size)));
+        return WebView::translate(WebView::ui_text("{0} downloaded"sv, { download_size_text(download.downloaded_size) }));
     };
 
     switch (download.status) {
     case DownloadStatus::InProgress: {
         if (download.is_waiting_to_retry)
-            return MUST(String::formatted("Waiting to retry · {}", downloaded_size_text()));
+            return WebView::translate(WebView::ui_text("Waiting to retry · {0}"sv, { downloaded_size_text() }));
 
         StringBuilder builder;
         builder.append(downloaded_size_text());
@@ -116,17 +117,17 @@ String download_status_text(WebView::FileDownloader::Download const& download)
     }
     case DownloadStatus::Paused:
         if (download.error.has_value() && !download.error->is_empty())
-            return MUST(String::formatted("Paused · {}", *download.error));
-        return MUST(String::formatted("Paused · {}", downloaded_size_text()));
+            return WebView::translate(WebView::ui_text("Paused · {0}"sv, { *download.error }));
+        return WebView::translate(WebView::ui_text("Paused · {0}"sv, { downloaded_size_text() }));
     case DownloadStatus::Completed:
         // NB: A finished download is the one with nothing else to say, so its status is just its size.
         return download_size_text(download.downloaded_size);
     case DownloadStatus::Canceled:
-        return "Canceled"_string;
+        return WebView::translate(WebView::ui_text("Canceled"sv));
     case DownloadStatus::Failed:
         if (download.error.has_value() && !download.error->is_empty())
-            return MUST(String::formatted("Failed · {}", *download.error));
-        return "Failed"_string;
+            return WebView::translate(WebView::ui_text("Failed · {0}"sv, { *download.error }));
+        return WebView::translate(WebView::ui_text("Failed"sv));
     }
     VERIFY_NOT_REACHED();
 }
@@ -182,18 +183,18 @@ DownloadsButtonState downloads_button_state(ReadonlySpan<WebView::FileDownloader
     if (state.active_download_count > 0) {
         if (state.active_download_progress.has_value() && unknown_active_download_count == 0) {
             if (state.active_download_count == 1)
-                state.tooltip = MUST(String::formatted("Downloading · {}", download_percent_text(*state.active_download_progress)));
+                state.tooltip = WebView::translate(WebView::ui_text("Downloading · {0}"sv, { download_percent_text(*state.active_download_progress) }));
             else
-                state.tooltip = MUST(String::formatted("{} downloads · {}", state.active_download_count, download_percent_text(*state.active_download_progress)));
+                state.tooltip = WebView::translate(WebView::ui_text("{0} downloads · {1}"sv, { String::number(state.active_download_count), download_percent_text(*state.active_download_progress) }));
         } else {
-            state.tooltip = download_count_text(state.active_download_count, "download in progress"sv, "downloads in progress"sv);
+            state.tooltip = plural_text(state.active_download_count, "{0} download in progress"sv, "{0} downloads in progress"sv);
         }
     } else if (state.failed_download_count > 0) {
-        state.tooltip = download_count_text(state.failed_download_count, "download failed"sv, "downloads failed"sv);
+        state.tooltip = plural_text(state.failed_download_count, "{0} download failed"sv, "{0} downloads failed"sv);
     } else if (state.paused_download_count > 0) {
-        state.tooltip = download_count_text(state.paused_download_count, "download paused"sv, "downloads paused"sv);
+        state.tooltip = plural_text(state.paused_download_count, "{0} download paused"sv, "{0} downloads paused"sv);
     } else {
-        state.tooltip = "Downloads"_string;
+        state.tooltip = WebView::translate(WebView::ui_text("Downloads"sv));
     }
 
     return state;

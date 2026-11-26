@@ -158,12 +158,12 @@ ApplicationActions::ApplicationActions(PageOptions const& options)
         view.reset_zoom();
     }));
 
-    m_zoom_menu = Menu::create_group("Zoom"sv);
+    m_zoom_menu = Menu::create_group(WebView::ui_text("Zoom"sv));
     m_zoom_menu->add_action(*m_zoom_in_action);
     m_zoom_menu->add_action(*m_zoom_out_action);
     m_zoom_menu->add_action(*m_reset_zoom_action);
 
-    m_force_dark_action = Action::create_checkable("Force Dark Mode"sv, ActionID::ForceDark, on_active_view([](RemoteView& view) {
+    m_force_dark_action = Action::create_checkable(WebView::ui_text("Force Dark Mode"sv), ActionID::ForceDark, on_active_view([](RemoteView& view) {
         if (view.is_private() == WebView::IsPrivate::Yes || view.current_host_for_settings().is_empty())
             return;
         auto& settings = Application::settings();
@@ -178,31 +178,31 @@ ApplicationActions::ApplicationActions(PageOptions const& options)
         };
     };
 
-    m_color_scheme_menu = Menu::create_group("Color Scheme"sv);
-    m_color_scheme_menu->add_action(Action::create_checkable("Auto"sv, ActionID::PreferredColorScheme, set_website_color_scheme(WebView::ThemePreference::System)));
-    m_color_scheme_menu->add_action(Action::create_checkable("Dark"sv, ActionID::PreferredColorScheme, set_website_color_scheme(WebView::ThemePreference::Dark)));
-    m_color_scheme_menu->add_action(Action::create_checkable("Light"sv, ActionID::PreferredColorScheme, set_website_color_scheme(WebView::ThemePreference::Light)));
+    m_color_scheme_menu = Menu::create_group(WebView::ui_text("Color Scheme"sv));
+    m_color_scheme_menu->add_action(Action::create_checkable(WebView::ui_text("Auto"sv), ActionID::PreferredColorScheme, set_website_color_scheme(WebView::ThemePreference::System)));
+    m_color_scheme_menu->add_action(Action::create_checkable(WebView::ui_text("Dark"sv), ActionID::PreferredColorScheme, set_website_color_scheme(WebView::ThemePreference::Dark)));
+    m_color_scheme_menu->add_action(Action::create_checkable(WebView::ui_text("Light"sv), ActionID::PreferredColorScheme, set_website_color_scheme(WebView::ThemePreference::Light)));
     update_website_color_scheme_actions();
 
     auto set_contrast = [](Web::CSS::PreferredContrast contrast) {
         return [contrast] { HubConnection::the().async_set_preferred_contrast(contrast); };
     };
 
-    m_contrast_menu = Menu::create_group("Contrast"sv);
-    m_contrast_menu->add_action(Action::create_checkable("Auto"sv, ActionID::PreferredContrast, set_contrast(Web::CSS::PreferredContrast::Auto)));
-    m_contrast_menu->add_action(Action::create_checkable("Less"sv, ActionID::PreferredContrast, set_contrast(Web::CSS::PreferredContrast::Less)));
-    m_contrast_menu->add_action(Action::create_checkable("More"sv, ActionID::PreferredContrast, set_contrast(Web::CSS::PreferredContrast::More)));
-    m_contrast_menu->add_action(Action::create_checkable("No Preference"sv, ActionID::PreferredContrast, set_contrast(Web::CSS::PreferredContrast::NoPreference)));
+    m_contrast_menu = Menu::create_group(WebView::ui_text("Contrast"sv));
+    m_contrast_menu->add_action(Action::create_checkable(WebView::ui_text("Auto"sv), ActionID::PreferredContrast, set_contrast(Web::CSS::PreferredContrast::Auto)));
+    m_contrast_menu->add_action(Action::create_checkable(WebView::ui_text("Less"sv), ActionID::PreferredContrast, set_contrast(Web::CSS::PreferredContrast::Less)));
+    m_contrast_menu->add_action(Action::create_checkable(WebView::ui_text("More"sv), ActionID::PreferredContrast, set_contrast(Web::CSS::PreferredContrast::More)));
+    m_contrast_menu->add_action(Action::create_checkable(WebView::ui_text("No Preference"sv), ActionID::PreferredContrast, set_contrast(Web::CSS::PreferredContrast::NoPreference)));
     m_contrast_menu->items().first().get<NonnullRefPtr<Action>>()->set_checked(true);
 
     auto set_motion = [](Web::CSS::PreferredMotion motion) {
         return [motion] { HubConnection::the().async_set_preferred_motion(motion); };
     };
 
-    m_motion_menu = Menu::create_group("Motion"sv);
-    m_motion_menu->add_action(Action::create_checkable("Auto"sv, ActionID::PreferredMotion, set_motion(Web::CSS::PreferredMotion::Auto)));
-    m_motion_menu->add_action(Action::create_checkable("Reduce"sv, ActionID::PreferredMotion, set_motion(Web::CSS::PreferredMotion::Reduce)));
-    m_motion_menu->add_action(Action::create_checkable("No Preference"sv, ActionID::PreferredMotion, set_motion(Web::CSS::PreferredMotion::NoPreference)));
+    m_motion_menu = Menu::create_group(WebView::ui_text("Motion"sv));
+    m_motion_menu->add_action(Action::create_checkable(WebView::ui_text("Auto"sv), ActionID::PreferredMotion, set_motion(Web::CSS::PreferredMotion::Auto)));
+    m_motion_menu->add_action(Action::create_checkable(WebView::ui_text("Reduce"sv), ActionID::PreferredMotion, set_motion(Web::CSS::PreferredMotion::Reduce)));
+    m_motion_menu->add_action(Action::create_checkable(WebView::ui_text("No Preference"sv), ActionID::PreferredMotion, set_motion(Web::CSS::PreferredMotion::NoPreference)));
     m_motion_menu->items().first().get<NonnullRefPtr<Action>>()->set_checked(true);
 
     m_toggle_vertical_tabs_expanded_action = Action::create(WebView::ui_text("Show Sidebar"sv), ActionID::ToggleVerticalTabsExpanded, [] {
@@ -244,13 +244,13 @@ ApplicationActions::ApplicationActions(PageOptions const& options)
     }));
     m_inspect_menu->add_action(*m_view_source_action);
 
-    m_toggle_devtools_action = Action::create("Enable DevTools"sv, ActionID::ToggleDevTools, [] {
+    m_toggle_devtools_action = Action::create(WebView::ui_text("Enable DevTools"sv), ActionID::ToggleDevTools, [] {
         HubConnection::the().async_toggle_devtools_enabled();
     });
     m_inspect_menu->add_action(*m_toggle_devtools_action);
     devtools_enabled_changed(options.devtools_enabled);
 
-    m_report_website_issue_action = Action::create("Report Website Issue…"sv, ActionID::ReportWebsiteIssue, on_active_view([](RemoteView& view) {
+    m_report_website_issue_action = Action::create(WebView::ui_text("Report Website Issue…"sv), ActionID::ReportWebsiteIssue, on_active_view([](RemoteView& view) {
         view.report_website_issue();
     }));
 
@@ -274,41 +274,41 @@ void ApplicationActions::create_debug_menu(PageOptions const& options)
 
     m_debug_menu = Menu::create(WebView::ui_text("Debug"sv));
     m_debug_menu->set_visible(settings.config_variable_as_bool(WebView::ConfigVariableID::ShowAdvancedDebugMenu));
-    auto dump_menu = Menu::create("Dump"sv);
-    dump_menu->add_action(Action::create("Session History Tree"sv, ActionID::DumpSessionHistoryTree, debug_request("dump-session-history"sv)));
-    dump_menu->add_action(Action::create("DOM Tree"sv, ActionID::DumpDOMTree, debug_request("dump-dom-tree"sv)));
-    dump_menu->add_action(Action::create("Layout Tree"sv, ActionID::DumpLayoutTree, debug_request("dump-layout-tree"sv)));
-    dump_menu->add_action(Action::create("Stacking Context Tree"sv, ActionID::DumpStackingContextTree, debug_request("dump-stacking-context-tree"sv)));
-    dump_menu->add_action(Action::create("Site Isolation Process Tree"sv, ActionID::DumpSiteIsolationProcessTree, debug_request("dump-site-isolation-process-tree"sv)));
-    dump_menu->add_action(Action::create("Display List"sv, ActionID::DumpDisplayList, debug_request("dump-display-list"sv)));
-    dump_menu->add_action(Action::create("Style Sheets"sv, ActionID::DumpStyleSheets, debug_request("dump-style-sheets"sv)));
-    dump_menu->add_action(Action::create("All Resolved Styles"sv, ActionID::DumpStyles, debug_request("dump-all-resolved-styles"sv)));
-    dump_menu->add_action(Action::create("CSS Errors"sv, ActionID::DumpCSSErrors, debug_request("dump-all-css-errors"sv)));
-    dump_menu->add_action(Action::create("Cookies"sv, ActionID::DumpCookies, [] {
+    auto dump_menu = Menu::create(WebView::ui_text("Dump"sv));
+    dump_menu->add_action(Action::create(WebView::ui_text("Session History Tree"sv), ActionID::DumpSessionHistoryTree, debug_request("dump-session-history"sv)));
+    dump_menu->add_action(Action::create(WebView::ui_text("DOM Tree"sv), ActionID::DumpDOMTree, debug_request("dump-dom-tree"sv)));
+    dump_menu->add_action(Action::create(WebView::ui_text("Layout Tree"sv), ActionID::DumpLayoutTree, debug_request("dump-layout-tree"sv)));
+    dump_menu->add_action(Action::create(WebView::ui_text("Stacking Context Tree"sv), ActionID::DumpStackingContextTree, debug_request("dump-stacking-context-tree"sv)));
+    dump_menu->add_action(Action::create(WebView::ui_text("Site Isolation Process Tree"sv), ActionID::DumpSiteIsolationProcessTree, debug_request("dump-site-isolation-process-tree"sv)));
+    dump_menu->add_action(Action::create(WebView::ui_text("Display List"sv), ActionID::DumpDisplayList, debug_request("dump-display-list"sv)));
+    dump_menu->add_action(Action::create(WebView::ui_text("Style Sheets"sv), ActionID::DumpStyleSheets, debug_request("dump-style-sheets"sv)));
+    dump_menu->add_action(Action::create(WebView::ui_text("All Resolved Styles"sv), ActionID::DumpStyles, debug_request("dump-all-resolved-styles"sv)));
+    dump_menu->add_action(Action::create(WebView::ui_text("CSS Errors"sv), ActionID::DumpCSSErrors, debug_request("dump-all-css-errors"sv)));
+    dump_menu->add_action(Action::create(WebView::ui_text("Cookies"sv), ActionID::DumpCookies, [] {
         HubConnection::the().async_dump_cookies();
     }));
-    dump_menu->add_action(Action::create("Local Storage"sv, ActionID::DumpLocalStorage, debug_request("dump-local-storage"sv)));
-    dump_menu->add_action(Action::create("Session Storage"sv, ActionID::DumpSessionStorage, debug_request("dump-session-storage"sv)));
-    dump_menu->add_action(Action::create("GC Graph"sv, ActionID::DumpGCGraph, on_active_view([](RemoteView& view) {
+    dump_menu->add_action(Action::create(WebView::ui_text("Local Storage"sv), ActionID::DumpLocalStorage, debug_request("dump-local-storage"sv)));
+    dump_menu->add_action(Action::create(WebView::ui_text("Session Storage"sv), ActionID::DumpSessionStorage, debug_request("dump-session-storage"sv)));
+    dump_menu->add_action(Action::create(WebView::ui_text("GC Graph"sv), ActionID::DumpGCGraph, on_active_view([](RemoteView& view) {
         HubConnection::the().async_view_dump_gc_graph(view.view_id());
     })));
     m_debug_menu->add_submenu(move(dump_menu));
     m_debug_menu->add_separator();
 
-    auto add_switch = [&](RefPtr<Action>& action, StringView name, ActionID id, bool checked, void (*set)(bool)) {
+    auto add_switch = [&](RefPtr<Action>& action, ActionText name, ActionID id, bool checked, void (*set)(bool)) {
         action = Action::create_checkable(name, id, [&action, set] { set(action->checked()); });
         action->set_checked(checked);
         m_debug_menu->add_action(*action);
     };
 
-    add_switch(m_show_line_box_borders_action, "Show Line Box Borders"sv, ActionID::ShowLineBoxBorders, false, [](bool shows) {
+    add_switch(m_show_line_box_borders_action, WebView::ui_text("Show Line Box Borders"sv), ActionID::ShowLineBoxBorders, false, [](bool shows) {
         HubConnection::the().async_set_shows_line_box_borders(shows);
     });
-    add_switch(m_show_caret_hit_test_debug_overlay_action, "Show Caret Hit Test Debug Overlay"sv, ActionID::ShowCaretHitTestDebugOverlay, false, [](bool shows) {
+    add_switch(m_show_caret_hit_test_debug_overlay_action, WebView::ui_text("Show Caret Hit Test Debug Overlay"sv), ActionID::ShowCaretHitTestDebugOverlay, false, [](bool shows) {
         HubConnection::the().async_set_shows_caret_hit_test_debug_overlay(shows);
     });
     auto shows_compositor_layers = Core::Environment::has("LADYBIRD_SHOW_COMPOSITOR_LAYERS"sv);
-    add_switch(m_show_compositor_layers_action, "Show Compositor Layers and Tiles"sv, ActionID::ShowCompositorLayers, shows_compositor_layers, [](bool shows) {
+    add_switch(m_show_compositor_layers_action, WebView::ui_text("Show Compositor Layers and Tiles"sv), ActionID::ShowCompositorLayers, shows_compositor_layers, [](bool shows) {
         Application::the().set_shows_compositor_layers(shows);
     });
     if (shows_compositor_layers) {
@@ -316,35 +316,35 @@ void ApplicationActions::create_debug_menu(PageOptions const& options)
         QTimer::singleShot(0, [] { Application::the().set_shows_compositor_layers(true); });
     }
 
-    m_show_tab_performance_monitor_action = Action::create_checkable("Show Tab Performance Monitor"sv, ActionID::ShowTabPerformanceMonitor, [this] {
+    m_show_tab_performance_monitor_action = Action::create_checkable(WebView::ui_text("Show Tab Performance Monitor"sv), ActionID::ShowTabPerformanceMonitor, [this] {
         Application::settings().set_config_variable(WebView::ConfigVariableID::ShowTabPerformanceMonitor, m_show_tab_performance_monitor_action->checked());
     });
     m_show_tab_performance_monitor_action->set_checked(settings.config_variable_as_bool(WebView::ConfigVariableID::ShowTabPerformanceMonitor));
     m_debug_menu->add_action(*m_show_tab_performance_monitor_action);
     m_debug_menu->add_separator();
 
-    m_debug_menu->add_action(Action::create("Report Leaked Documents"sv, ActionID::ReportLeakedDocuments, debug_request("report-leaked-documents"sv)));
-    m_debug_menu->add_action(Action::create("Collect Garbage"sv, ActionID::CollectGarbage, debug_request("collect-garbage"sv)));
-    m_debug_menu->add_action(Action::create("Crash Current Page"sv, ActionID::CrashCurrentPage, debug_request("crash-current-page"sv)));
-    m_debug_menu->add_action(Action::create("Crash Compositor Process"sv, ActionID::CrashCompositorProcess, [] {
+    m_debug_menu->add_action(Action::create(WebView::ui_text("Report Leaked Documents"sv), ActionID::ReportLeakedDocuments, debug_request("report-leaked-documents"sv)));
+    m_debug_menu->add_action(Action::create(WebView::ui_text("Collect Garbage"sv), ActionID::CollectGarbage, debug_request("collect-garbage"sv)));
+    m_debug_menu->add_action(Action::create(WebView::ui_text("Crash Current Page"sv), ActionID::CrashCurrentPage, debug_request("crash-current-page"sv)));
+    m_debug_menu->add_action(Action::create(WebView::ui_text("Crash Compositor Process"sv), ActionID::CrashCompositorProcess, [] {
         HubConnection::the().async_crash_compositor_process();
     }));
     m_debug_menu->add_separator();
 
-    auto spoof_user_agent_menu = Menu::create_group("Spoof User Agent"sv);
-    auto add_user_agent = [&](StringView name, StringView user_agent) {
+    auto spoof_user_agent_menu = Menu::create_group(WebView::ui_text("Spoof User Agent"sv));
+    auto add_user_agent = [&](ActionText name, StringView user_agent) {
         auto action = Action::create_checkable(name, ActionID::SpoofUserAgent, [user_agent] {
             HubConnection::the().async_set_user_agent_string(MUST(String::from_utf8(user_agent)));
         });
         action->set_checked(options.user_agent == user_agent);
         spoof_user_agent_menu->add_action(move(action));
     };
-    add_user_agent("Disabled"sv, Web::default_user_agent);
+    add_user_agent(WebView::ui_text("Disabled"sv), Web::default_user_agent);
     for (auto const& user_agent : WebView::user_agents)
         add_user_agent(user_agent.key, user_agent.value);
 
-    auto navigator_compatibility_mode_menu = Menu::create_group("Navigator Compatibility Mode"sv);
-    auto add_navigator_compatibility_mode = [&](StringView name, Web::NavigatorCompatibilityMode mode) {
+    auto navigator_compatibility_mode_menu = Menu::create_group(WebView::ui_text("Navigator Compatibility Mode"sv));
+    auto add_navigator_compatibility_mode = [&](ActionText name, Web::NavigatorCompatibilityMode mode) {
         auto action = Action::create_checkable(name, ActionID::SpoofUserAgent, [mode] {
             HubConnection::the().async_set_navigator_compatibility_mode(mode);
         });
@@ -359,10 +359,10 @@ void ApplicationActions::create_debug_menu(PageOptions const& options)
     m_debug_menu->add_submenu(move(navigator_compatibility_mode_menu));
     m_debug_menu->add_separator();
 
-    add_switch(m_enable_scripting_action, "Enable Scripting"sv, ActionID::EnableScripting, options.scripting_enabled, [](bool enabled) {
+    add_switch(m_enable_scripting_action, WebView::ui_text("Enable Scripting"sv), ActionID::EnableScripting, options.scripting_enabled, [](bool enabled) {
         HubConnection::the().async_set_scripting_enabled(enabled);
     });
-    add_switch(m_block_pop_ups_action, "Block Pop-ups"sv, ActionID::BlockPopUps, options.blocks_pop_ups, [](bool blocks) {
+    add_switch(m_block_pop_ups_action, WebView::ui_text("Block Pop-ups"sv), ActionID::BlockPopUps, options.blocks_pop_ups, [](bool blocks) {
         HubConnection::the().async_set_blocks_pop_ups(blocks);
     });
 }
@@ -391,7 +391,7 @@ void ApplicationActions::update_force_dark_action()
 
 void ApplicationActions::devtools_enabled_changed(bool enabled)
 {
-    m_toggle_devtools_action->set_text(enabled ? "Disable DevTools"sv : "Enable DevTools"sv);
+    m_toggle_devtools_action->set_text(WebView::ui_text(enabled ? "Disable DevTools"sv : "Enable DevTools"sv));
 }
 
 void ApplicationActions::update_website_color_scheme_actions()

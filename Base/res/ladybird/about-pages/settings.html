@@ -405,6 +405,13 @@
                 flex-grow: 1;
             }
 
+            /* Translated labels are longer than the English ones, so a button never wraps its text. */
+            button.primary-button,
+            button.secondary-button,
+            button.link-button {
+                white-space: nowrap;
+            }
+
             .tab-bar {
                 display: flex;
                 gap: 4px;
@@ -729,6 +736,7 @@
 
             .list-heading {
                 display: flex;
+                flex-wrap: wrap;
                 align-items: baseline;
                 justify-content: space-between;
                 gap: 16px;
@@ -977,7 +985,10 @@
             <div class="tab-panel active" id="tab-appearance" data-title="Appearance">
                 <div class="card">
                     <div class="card-body">
-                        <div class="card-group inline-container control-row" data-filter-text="language idioma español english">
+                        <div
+                            class="card-group inline-container control-row"
+                            data-filter-text="language idioma español english"
+                        >
                             <label for="interface-language">
                                 Interface language
                                 <p class="description">Some parts are available only in English.</p>
@@ -1156,6 +1167,7 @@
                                 class="boxed-list"
                                 role="radiogroup"
                                 aria-labelledby="search-engine-title"
+                                translate="no"
                             ></div>
                             <div class="list-footer">
                                 <button id="search-settings" class="link-button">Custom search engines…</button>
@@ -1287,6 +1299,7 @@
                 <div class="card">
                     <div class="card-body">
                         <p id="browsing-data-total-size" class="card-group"></p>
+                        <p id="clear-browsing-data-page-error" class="description" role="alert" hidden></p>
                         <div class="card-group inline-container control-row">
                             <label for="browsing-data-settings">Clear browsing data</label>
                             <button id="browsing-data-settings" class="secondary-button">Clear…</button>
@@ -1438,7 +1451,7 @@
                                 </button>
                             </span>
                         </div>
-                        <div id="content-blocker-lists" class="boxed-list"></div>
+                        <div id="content-blocker-lists" class="boxed-list" translate="no"></div>
                         <div id="add-filter-list-form" class="add-filter-list" hidden>
                             <p class="description">
                                 Add a filter list maintained by a source you trust. Automatic updates reveal your IP
@@ -1470,13 +1483,13 @@
                         </div>
                         <details class="expandable-list">
                             <summary>Show language-specific lists</summary>
-                            <div id="language-content-blocker-lists" class="boxed-list"></div>
+                            <div id="language-content-blocker-lists" class="boxed-list" translate="no"></div>
                         </details>
                     </div>
 
                     <div id="content-blocker-disabled-sites-section" class="card-group list-section" hidden>
                         <div class="list-heading"><span>Turned off on</span></div>
-                        <div id="content-blocker-disabled-sites" class="boxed-list"></div>
+                        <div id="content-blocker-disabled-sites" class="boxed-list" translate="no"></div>
                     </div>
 
                     <div class="card-group">
@@ -1601,7 +1614,7 @@
                 </label>
                 <div class="card">
                     <div class="card-body">
-                        <div id="config-list"></div>
+                        <div id="config-list" translate="no"></div>
                     </div>
                 </div>
             </div>
@@ -1626,7 +1639,7 @@
 
         <dialog id="search-dialog" closedby="any">
             <div class="dialog-header">
-                <h3 class="dialog-title">Search settings</h3>
+                <h3 class="dialog-title" data-l10n-context="dialog">Search settings</h3>
                 <button id="search-close" class="close-button dialog-button">&times;</button>
             </div>
             <div class="dialog-body" style="height: 300px">
@@ -1665,7 +1678,7 @@
                     />
                 </div>
                 <div class="dialog-controls">
-                    <button id="search-custom-add" class="primary-button">Add&nbsp;engine</button>
+                    <button id="search-custom-add" class="primary-button">Add engine</button>
                 </div>
             </div>
         </dialog>
@@ -1681,7 +1694,7 @@
                 <div class="dialog-controls">
                     <input id="site-settings-input" type="text" placeholder="https://example.com" spellcheck="false" />
                     <select id="site-settings-decision" aria-label="Site policy"></select>
-                    <button id="site-settings-add" class="primary-button">Add&nbsp;site</button>
+                    <button id="site-settings-add" class="primary-button">Add site</button>
                 </div>
             </div>
             <div class="dialog-footer">
@@ -1710,7 +1723,7 @@
             </div>
             <div class="dialog-body" style="height: auto">
                 <div class="input-field-container control-row">
-                    <label for="clear-browsing-data-time-range">Remove&nbsp;browsing&nbsp;data&nbsp;from:</label>
+                    <label for="clear-browsing-data-time-range">Remove browsing data from:</label>
                     <select id="clear-browsing-data-time-range">
                         <option value="lastHour">Last hour</option>
                         <option value="last4Hours">Last 4 hours</option>
@@ -1746,6 +1759,7 @@
                         <p class="description">Remove items that may sign you out of most sites</p>
                     </label>
                 </div>
+                <p id="clear-browsing-data-error" class="description" role="alert" hidden></p>
                 <div class="button-container">
                     <button id="clear-browsing-data-remove-data" class="secondary-button">Remove data</button>
                 </div>
@@ -1801,7 +1815,9 @@
         <script src="resource://ladybird/about-pages/settings/tabs.js" type="module"></script>
 
         <script type="module">
+            import { onInterfaceLanguageChange } from "resource://ladybird/about-pages/l10n.js";
             import { tabForDeepLink } from "resource://ladybird/about-pages/settings/dialog-deep-link.js";
+            import { normalizeSearchText } from "resource://ladybird/about-pages/settings/search-text.js";
 
             const tabButtons = [...document.querySelectorAll(".tab-button")];
             const searchInput = document.querySelector("#settings-search");
@@ -1814,21 +1830,28 @@
                 );
             }
 
+            // The English text is searched as well, as it is what the settings are called elsewhere.
             function matches(element, query) {
-                return element.textContent.toLocaleLowerCase().includes(query) || element.dataset.filterText?.toLocaleLowerCase().includes(query);
+                return [element.textContent, element.dataset.filterText, element.dataset.sourceText].some(text =>
+                    normalizeSearchText(text ?? "").includes(query)
+                );
             }
 
             // While searching, every section shows the settings whose text matches. A section or a card whose title
             // matches shows all of its settings.
             function search() {
-                const query = searchInput.value.trim().toLocaleLowerCase();
+                const query = normalizeSearchText(searchInput.value.trim());
                 const searching = query.length !== 0;
                 document.body.classList.toggle("searching", searching);
 
                 let anyMatch = false;
                 document.querySelectorAll(".tab-panel").forEach(panel => {
                     panel.hidden = !searching && !panel.classList.contains("active");
-                    const panelMatches = searching && panel.dataset.title.toLocaleLowerCase().includes(query);
+                    const panelMatches =
+                        searching &&
+                        [panel.dataset.title, panel.dataset.sourceTitle].some(title =>
+                            normalizeSearchText(title ?? "").includes(query)
+                        );
                     let panelHasMatch = panelMatches;
                     panel.querySelectorAll(".card").forEach(card => {
                         const title = card.previousElementSibling?.classList.contains("card-title")
@@ -1852,6 +1875,7 @@
             }
 
             searchInput.addEventListener("input", search);
+            onInterfaceLanguageChange(search);
             searchInput.addEventListener("keydown", event => {
                 if (event.key === "Escape" && searchInput.value.length !== 0) {
                     event.preventDefault();

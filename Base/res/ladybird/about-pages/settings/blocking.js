@@ -1,3 +1,5 @@
+import { onInterfaceLanguageChange, t } from "../l10n.js";
+
 const contentBlockerLists = document.querySelector("#content-blocker-lists");
 const languageLists = document.querySelector("#language-content-blocker-lists");
 const updateLists = document.querySelector("#update-content-blocker-lists");
@@ -20,6 +22,26 @@ const maximumCustomFilterSize = 4 * 1024 * 1024;
 
 let updateTimer;
 let savedCustomFilters = "";
+let updateInProgress = false;
+let currentLists = [];
+let currentDisabledSites = [];
+
+// Each status shows a message that is translated again when the interface language changes.
+const statusMessages = new Map();
+
+function showStatus(element, render) {
+    statusMessages.set(element, render);
+    element.innerText = render();
+}
+
+// The browser reports the outcome of an import or a subscription in English, and names the list or the reason.
+function translateResult(message) {
+    const imported = message.match(/^(.*) imported\.$/s);
+    if (imported) return t("{0} imported.", [imported[1]]);
+    const failed = message.match(/^Unable to import list: (.*)$/s);
+    if (failed) return t("Unable to import list: {0}", [failed[1]]);
+    return t(message);
+}
 
 function createListRow(list, removable = false) {
     const row = document.querySelector("#filter-list-row").content.firstElementChild.cloneNode(true);
@@ -35,8 +57,13 @@ function createListRow(list, removable = false) {
     label.htmlFor = id;
     labelText.textContent = name;
 
-    // A list added by the user has no description of its own, so it is described by where it comes from.
-    details.textContent = list.description || (list.url ? new URL(list.url).host : "Local file");
+    // A list added by the user has no description of its own, so it is described by where it comes from. Only the
+    // description of a built-in list is the browser's text.
+    if (list.builtIn) {
+        details.textContent = t(list.description);
+    } else {
+        details.textContent = list.description || (list.url ? new URL(list.url).host : t("Local file"));
+    }
 
     toggle.checked = list.enabled;
     toggle.addEventListener("change", () => {
@@ -45,7 +72,8 @@ function createListRow(list, removable = false) {
 
     const remove = row.querySelector("button");
     if (removable) {
-        remove.setAttribute("aria-label", `Remove ${name}`);
+        remove.textContent = t("Remove");
+        remove.setAttribute("aria-label", t("Remove {0}", [name]));
         remove.addEventListener("click", () => ladybird.sendMessage("removeContentBlockerList", list.identifier));
     } else {
         remove.remove();
@@ -68,14 +96,33 @@ function createDisabledSiteRow(site) {
 
     const turnBackOn = document.createElement("button");
     turnBackOn.className = "link-button";
-    turnBackOn.textContent = "Turn back on";
-    turnBackOn.setAttribute("aria-label", `Turn content blocking back on for ${site}`);
+    turnBackOn.textContent = t("Turn back on");
+    turnBackOn.setAttribute("aria-label", t("Turn content blocking back on for {0}", [site]));
     turnBackOn.addEventListener("click", () => {
         ladybird.sendMessage("setContentBlockerEnabledForSite", { site, enabled: true });
     });
 
     row.append(tile, name, turnBackOn);
     return row;
+}
+
+function renderLists() {
+    contentBlockerLists.replaceChildren();
+    languageLists.replaceChildren();
+
+    for (const list of currentLists) {
+        const container = list.builtIn && list.languageSpecific ? languageLists : contentBlockerLists;
+        container.append(createListRow(list, !list.builtIn));
+    }
+}
+
+function renderDisabledSites() {
+    disabledSites.replaceChildren(...currentDisabledSites.map(createDisabledSiteRow));
+    disabledSitesSection.hidden = currentDisabledSites.length === 0;
+}
+
+function renderUpdateButton() {
+    updateLists.innerText = updateInProgress ? t("Updating…") : t("Update enabled lists");
 }
 
 function loadSettings(settings) {
@@ -89,24 +136,19 @@ function loadSettings(settings) {
 
         savedCustomFilters = contentBlockers.customFilters;
 
-        const sites = [...(contentBlockers.disabledSites ?? [])].sort();
-        disabledSites.replaceChildren(...sites.map(createDisabledSiteRow));
-        disabledSitesSection.hidden = sites.length === 0;
+        currentDisabledSites = [...(contentBlockers.disabledSites ?? [])].sort();
+        renderDisabledSites();
     }
 
     if (Object.hasOwn(settings, "contentBlockerLists")) {
-        contentBlockerLists.replaceChildren();
-        languageLists.replaceChildren();
-
-        for (const list of settings.contentBlockerLists) {
-            const container = list.builtIn && list.languageSpecific ? languageLists : contentBlockerLists;
-            container.append(createListRow(list, !list.builtIn));
-        }
+        currentLists = settings.contentBlockerLists;
+        renderLists();
     }
 
     if (Object.hasOwn(settings, "contentBlockerListUpdateInProgress")) {
-        updateLists.disabled = settings.contentBlockerListUpdateInProgress;
-        updateLists.innerText = settings.contentBlockerListUpdateInProgress ? "Updating…" : "Update enabled lists";
+        updateInProgress = settings.contentBlockerListUpdateInProgress;
+        updateLists.disabled = updateInProgress;
+        renderUpdateButton();
 
         clearInterval(updateTimer);
         if (settings.contentBlockerListUpdateInProgress) {
@@ -132,7 +174,7 @@ addSubscription.addEventListener("click", () => {
     }
     const url = new URL(subscriptionUrl.value);
     if (url.protocol !== "http:" && url.protocol !== "https:") {
-        subscriptionStatus.innerText = "Enter an HTTP or HTTPS URL.";
+        showStatus(subscriptionStatus, () => t("Enter an HTTP or HTTPS URL."));
         return;
     }
     ladybird.sendMessage("addCustomContentBlockerSubscription", subscriptionUrl.value);
@@ -150,7 +192,7 @@ localListPicker.addEventListener("change", async () => {
         return;
     }
     if (file.size > 64 * 1024 * 1024) {
-        localListStatus.innerText = "The selected list is larger than 64 MiB.";
+        showStatus(localListStatus, () => t("The selected list is larger than 64 MiB."));
         localListPicker.value = "";
         return;
     }
@@ -168,7 +210,7 @@ localListPicker.addEventListener("change", async () => {
         serialized.length > maximumPayloadSize ||
         new TextEncoder().encode(serialized).byteLength > maximumPayloadSize
     ) {
-        localListStatus.innerText = "The encoded list is too large to import.";
+        showStatus(localListStatus, () => t("The encoded list is too large to import."));
         localListPicker.value = "";
         return;
     }
@@ -178,12 +220,12 @@ localListPicker.addEventListener("change", async () => {
 
 saveCustomFilters.addEventListener("click", () => {
     if (new TextEncoder().encode(customFilters.value).byteLength > maximumCustomFilterSize) {
-        customFiltersStatus.innerText = "Custom filters must be 4 MiB or smaller.";
+        showStatus(customFiltersStatus, () => t("Custom filters must be 4 MiB or smaller."));
         customFilters.focus();
         return;
     }
     ladybird.sendMessage("setCustomContentBlockerFilters", customFilters.value);
-    customFiltersStatus.innerText = "Saved";
+    showStatus(customFiltersStatus, () => t("Saved"));
 });
 
 document.addEventListener("WebUIMessage", event => {
@@ -192,6 +234,13 @@ document.addEventListener("WebUIMessage", event => {
     } else if (event.detail.name === "contentBlockerResult") {
         const result = event.detail.data;
         const status = result.operation === "subscription" ? subscriptionStatus : localListStatus;
-        status.innerText = result.message;
+        showStatus(status, () => translateResult(result.message));
     }
+});
+
+onInterfaceLanguageChange(() => {
+    renderLists();
+    renderDisabledSites();
+    renderUpdateButton();
+    for (const [element, render] of statusMessages) element.innerText = render();
 });

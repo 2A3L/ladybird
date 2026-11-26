@@ -7,6 +7,7 @@
 #include <LibCore/ResourceImplementation.h>
 #include <LibCore/ResourceImplementationFile.h>
 #include <LibTest/TestCase.h>
+#include <LibUnicode/ListFormat.h>
 #include <UI/Qt/Localization.h>
 #include <UI/Qt/Menu.h>
 
@@ -165,4 +166,54 @@ TEST_CASE(qt_translations_come_from_the_interface_catalog)
     EXPECT(QCoreApplication::translate("QShortcut", "Back") == QStringLiteral("Back"));
     Ladybird::apply_interface_language("en"sv);
     EXPECT(QCoreApplication::translate("QObject", "Reload") == QStringLiteral("Reload"));
+}
+
+TEST_CASE(actions_and_context_menus_are_translated)
+{
+    use_shipped_catalogs();
+    Ladybird::apply_interface_language("es"sv);
+    QWidget parent;
+
+    auto text_of = [&](Ladybird::ActionText text) {
+        auto action = Ladybird::Action::create(move(text), Ladybird::ActionID::BookmarkItem, [] { });
+        Ladybird::ActionBinding binding(parent, Ladybird::IncludeActionIcon::No);
+        binding.bind(*action);
+        return binding.action().text();
+    };
+
+    EXPECT(text_of(WebView::ui_text("Copy Link"sv)) == QStringLiteral("Copiar enlace"));
+    EXPECT(text_of(WebView::ui_text("Save Image As…"sv)) == QStringLiteral("Guardar imagen como…"));
+    EXPECT(text_of(WebView::ui_text("Exit Picture in Picture"sv)) == QStringLiteral("Salir de imagen en imagen"));
+    EXPECT(text_of(WebView::ui_text("Crash Current Page"sv)) == QStringLiteral("Provocar fallo de la página actual"));
+    EXPECT(text_of(WebView::ui_text("Dark"sv)) == QStringLiteral("Oscuro"));
+
+    // The target language and the downloaded ones are placed by the translation.
+    EXPECT(text_of(WebView::ui_text("Translate to {0}"sv, { "neerlandés"_string })) == QStringLiteral("Traducir al neerlandés"));
+    EXPECT(text_of(WebView::ui_text("Download {0} to Translate to {1}…"sv, { "inglés"_string, "alemán"_string }))
+        == QStringLiteral("Descargar inglés para traducir al alemán…"));
+    EXPECT(text_of(WebView::ui_text("Use {0} (Slower)"sv, { "Modelo"_string })) == QStringLiteral("Usar Modelo (más lento)"));
+    EXPECT(text_of(WebView::ui_text("Open All in Tabs ({0})"sv, { "3"_string })) == QStringLiteral("Abrir todo en pestañas (3)"));
+    EXPECT(text_of(WebView::ui_text("{0}%"sv, { "110"_string })) == QStringLiteral("110%"));
+
+    // A bookmark, a folder or a page title is the user's or the site's, even when it reads like an action.
+    EXPECT(text_of(WebView::ui_text("Delete"sv)) == QStringLiteral("Eliminar"));
+    EXPECT(text_of("Delete"_string) == QStringLiteral("Delete"));
+    EXPECT(text_of("Copy Link"_string) == QStringLiteral("Copy Link"));
+
+    Ladybird::apply_interface_language("en"sv);
+    EXPECT(text_of(WebView::ui_text("Copy Link"sv)) == QStringLiteral("Copy Link"));
+    EXPECT(text_of(WebView::ui_text("Translate to {0}"sv, { "Dutch"_string })) == QStringLiteral("Translate to Dutch"));
+    EXPECT(text_of(WebView::ui_text("{0}%"sv, { "110"_string })) == QStringLiteral("110%"));
+}
+
+TEST_CASE(language_names_are_joined_in_the_interface_language)
+{
+    auto join = [](StringView locale_name) {
+        auto locale = Utf16String::from_utf8(locale_name);
+        Vector<Utf16String> names { Utf16String::from_utf8("alemán"sv), Utf16String::from_utf8("inglés"sv) };
+        return Unicode::ListFormat::create(locale.utf16_view(), Unicode::ListFormatType::Conjunction, Unicode::Style::Long)->format(names).to_utf8();
+    };
+
+    EXPECT_EQ(join("en"sv), "alemán and inglés"sv);
+    EXPECT_EQ(join("es"sv), "alemán e inglés"sv);
 }

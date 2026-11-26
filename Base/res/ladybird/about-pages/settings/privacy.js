@@ -1,4 +1,5 @@
 import { getByteFormatter } from "../../utils.js";
+import { onInterfaceLanguageChange, t } from "../l10n.js";
 import { registerDialogDeepLink } from "./dialog-deep-link.js";
 
 const byteFormatter = getByteFormatter(unit => {
@@ -16,6 +17,8 @@ const browsingDataTotalSize = document.querySelector("#browsing-data-total-size"
 const clearBrowsingDataCachedFiles = document.querySelector("#clear-browsing-data-cached-files");
 const clearBrowsingDataCachedFilesSize = document.querySelector("#clear-browsing-data-cached-files-size");
 const clearBrowsingDataDownloadHistory = document.querySelector("#clear-browsing-data-download-history");
+const clearBrowsingDataError = document.querySelector("#clear-browsing-data-error");
+const clearBrowsingDataPageError = document.querySelector("#clear-browsing-data-page-error");
 const clearBrowsingDataHistory = document.querySelector("#clear-browsing-data-history");
 const clearBrowsingDataRemoveData = document.querySelector("#clear-browsing-data-remove-data");
 const clearBrowsingDataSiteData = document.querySelector("#clear-browsing-data-site-data");
@@ -23,6 +26,11 @@ const clearBrowsingDataSiteDataSize = document.querySelector("#clear-browsing-da
 const clearBrowsingDataTimeRange = document.querySelector("#clear-browsing-data-time-range");
 
 const globalPrivacyControlToggle = document.querySelector("#global-privacy-control-toggle");
+let clearingBrowsingData = false;
+// Clears whose dialog was closed before the browser answered; their replies must not affect a reopened dialog.
+let abandonedClearCount = 0;
+
+let browsingDataSizes = null;
 
 function loadSettings(settings) {
     if (Object.hasOwn(settings, "globalPrivacyControl")) {
@@ -31,12 +39,17 @@ function loadSettings(settings) {
 }
 
 function updateBrowsingDataSizes(sizes) {
+    browsingDataSizes = sizes;
     const totalSize = sizes.totalCacheSize + sizes.totalSiteDataSize;
 
-    browsingDataTotalSize.innerText = `Your browsing data is currently using ${byteFormatter.formatBytes(totalSize)} of disk space`;
+    browsingDataTotalSize.innerText = t("Your browsing data is currently using {0} of disk space", [
+        byteFormatter.formatBytes(totalSize),
+    ]);
 
-    clearBrowsingDataCachedFilesSize.innerText = ` (remove ${byteFormatter.formatBytes(sizes.cacheSizeSinceRequestedTime)})`;
-    clearBrowsingDataSiteDataSize.innerText = ` (remove ${byteFormatter.formatBytes(sizes.siteDataSizeSinceRequestedTime)})`;
+    const cachedFilesSize = byteFormatter.formatBytes(sizes.cacheSizeSinceRequestedTime);
+    const siteDataSize = byteFormatter.formatBytes(sizes.siteDataSizeSinceRequestedTime);
+    clearBrowsingDataCachedFilesSize.innerText = ` ${t("(remove {0})", [cachedFilesSize])}`;
+    clearBrowsingDataSiteDataSize.innerText = ` ${t("(remove {0})", [siteDataSize])}`;
 }
 
 function computeTimeRange() {
@@ -86,11 +99,20 @@ clearBrowsingDataTimeRange.addEventListener("change", () => {
 
 function setRemoveDataEnabledState() {
     clearBrowsingDataRemoveData.disabled =
-        !clearBrowsingDataCachedFiles.checked &&
-        !clearBrowsingDataHistory.checked &&
-        !clearBrowsingDataDownloadHistory.checked &&
-        !clearBrowsingDataSiteData.checked;
+        clearingBrowsingData ||
+        (!clearBrowsingDataCachedFiles.checked &&
+            !clearBrowsingDataHistory.checked &&
+            !clearBrowsingDataDownloadHistory.checked &&
+            !clearBrowsingDataSiteData.checked);
 }
+
+browsingDataSettingsDialog.addEventListener("close", () => {
+    if (clearingBrowsingData) {
+        clearingBrowsingData = false;
+        ++abandonedClearCount;
+    }
+    setRemoveDataEnabledState();
+});
 
 clearBrowsingDataCachedFiles.addEventListener("change", setRemoveDataEnabledState);
 clearBrowsingDataHistory.addEventListener("change", setRemoveDataEnabledState);
@@ -99,6 +121,10 @@ clearBrowsingDataSiteData.addEventListener("change", setRemoveDataEnabledState);
 
 clearBrowsingDataRemoveData.addEventListener("click", () => {
     const since = computeTimeRange();
+    clearingBrowsingData = true;
+    clearBrowsingDataError.hidden = true;
+    clearBrowsingDataPageError.hidden = true;
+    setRemoveDataEnabledState();
 
     ladybird.sendMessage("clearBrowsingData", {
         since: since?.epochMilliseconds,
@@ -107,12 +133,20 @@ clearBrowsingDataRemoveData.addEventListener("click", () => {
         downloadHistory: clearBrowsingDataDownloadHistory.checked,
         siteData: clearBrowsingDataSiteData.checked,
     });
-
-    browsingDataSettingsDialog.close();
 });
 
 globalPrivacyControlToggle.addEventListener("change", () => {
     ladybird.sendMessage("setGlobalPrivacyControl", globalPrivacyControlToggle.checked);
+});
+
+const clearFailedText = () => t("Some selected data may not have been removed. Try again.");
+
+onInterfaceLanguageChange(() => {
+    if (browsingDataSizes) updateBrowsingDataSizes(browsingDataSizes);
+
+    for (const error of [clearBrowsingDataError, clearBrowsingDataPageError]) {
+        if (!error.hidden) error.textContent = clearFailedText();
+    }
 });
 
 document.addEventListener("WebUILoaded", estimateBrowsingDataSizes);
@@ -122,7 +156,24 @@ document.addEventListener("WebUIMessage", event => {
         loadSettings(event.detail.data);
     } else if (event.detail.name === "estimatedBrowsingDataSizes") {
         updateBrowsingDataSizes(event.detail.data);
-    } else if (event.detail.name === "clearedBrowsingData") {
+    } else if (event.detail.name === "clearedBrowsingData" || event.detail.name === "clearBrowsingDataFailed") {
+        const isCurrentClear = abandonedClearCount === 0;
+        if (isCurrentClear) {
+            clearingBrowsingData = false;
+            setRemoveDataEnabledState();
+        } else {
+            --abandonedClearCount;
+        }
+        if (event.detail.name === "clearedBrowsingData") {
+            if (isCurrentClear) {
+                browsingDataSettingsDialog.close();
+            }
+        } else {
+            const error =
+                isCurrentClear && browsingDataSettingsDialog.open ? clearBrowsingDataError : clearBrowsingDataPageError;
+            error.textContent = clearFailedText();
+            error.hidden = false;
+        }
         estimateBrowsingDataSizes();
     }
 });

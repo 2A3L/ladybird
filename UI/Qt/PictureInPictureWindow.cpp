@@ -5,6 +5,7 @@
  */
 
 #include <LibCompositing/PictureInPictureControls.h>
+#include <UI/Qt/Localization.h>
 #include <UI/Qt/PictureInPictureWindow.h>
 #include <UI/Qt/WebContentView.h>
 #include <UI/Qt/WindowScreenObserver.h>
@@ -73,7 +74,7 @@ public:
         // it order every window to the front whenever Ladybird is activated, bringing browser windows forward too.
         keep_appkit_window_visible_while_inactive(*this);
 #endif
-        setWindowTitle("Picture-in-Picture");
+        bind_ui_text(*this, WebView::ui_text("Picture-in-Picture"sv), [this](QString const& title) { setWindowTitle(title); });
 
         auto available = screen->availableGeometry();
 

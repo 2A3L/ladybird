@@ -7,6 +7,7 @@
 #include <UI/Qt/ChromeStyle.h>
 #include <UI/Qt/FindInPageWidget.h>
 #include <UI/Qt/Icon.h>
+#include <UI/Qt/Localization.h>
 #include <UI/Qt/Motion.h>
 #include <UI/Qt/NativeTextEditingLineEdit.h>
 #include <UI/Qt/Popover.h>
@@ -59,7 +60,6 @@ FindInPageWidget::FindInPageWidget(Tab* tab, WebContentView* content_view)
     , m_content_view(content_view)
 {
     setObjectName("LadybirdFindInPageBar");
-    setAccessibleName("Find in page");
 #if defined(AK_OS_MACOS)
     setAttribute(Qt::WA_DontCreateNativeAncestors);
     setAttribute(Qt::WA_NativeWindow);
@@ -88,8 +88,11 @@ FindInPageWidget::FindInPageWidget(Tab* tab, WebContentView* content_view)
     m_find_text = new NativeTextEditingLineEdit(field);
     m_find_text->setObjectName("LadybirdFindInPageText");
     m_find_text->setFocusPolicy(Qt::FocusPolicy::StrongFocus);
-    m_find_text->setPlaceholderText("Find in page");
-    m_find_text->setAccessibleName("Find in page");
+    bind_ui_text(*this, WebView::ui_text("Find in page"sv), [this](QString const& text) {
+        setAccessibleName(text);
+        m_find_text->setPlaceholderText(text);
+        m_find_text->setAccessibleName(text);
+    });
     connect(m_find_text, &QLineEdit::textChanged, this, &FindInPageWidget::find_text_changed);
     field_layout->addWidget(m_find_text, 1);
 
@@ -97,32 +100,37 @@ FindInPageWidget::FindInPageWidget(Tab* tab, WebContentView* content_view)
     m_result_label->setObjectName("LadybirdFindInPageResult");
     m_result_label->setVisible(false);
     field_layout->addWidget(m_result_label);
+    bind_ui_text(*m_result_label, WebView::ui_text("No matches"sv), [this](QString const&) {
+        show_result_label();
+    });
     layout->addWidget(field, 1);
 
-    auto make_button = [&](QString const& tooltip) {
+    auto make_button = [&](WebView::UIText tooltip) {
         auto* button = new QPushButton(this);
         button->setObjectName("LadybirdFindInPageButton");
         button->setFixedSize(28, 28);
         button->setAttribute(Qt::WA_LayoutUsesWidgetRect);
         button->setIconSize({ 16, 16 });
-        button->setToolTip(tooltip);
-        button->setAccessibleName(tooltip);
+        bind_ui_text(*button, AK::move(tooltip), [button](QString const& text) {
+            button->setToolTip(text);
+            button->setAccessibleName(text);
+        });
         button->setFlat(true);
         button->setFocusPolicy(Qt::TabFocus);
         return button;
     };
 
-    m_previous_button = make_button("Previous match");
+    m_previous_button = make_button(WebView::ui_text("Previous match"sv));
     connect(m_previous_button, &QPushButton::clicked, this, [this] {
         m_content_view->find_in_page_previous_match();
     });
 
-    m_next_button = make_button("Next match");
+    m_next_button = make_button(WebView::ui_text("Next match"sv));
     connect(m_next_button, &QPushButton::clicked, this, [this] {
         m_content_view->find_in_page_next_match();
     });
 
-    m_match_case = make_button("Match case");
+    m_match_case = make_button(WebView::ui_text("Match case"sv));
     m_match_case->setText("Aa");
     m_match_case->setCheckable(true);
     connect(m_match_case, &QPushButton::toggled, this, [this] {
@@ -133,7 +141,7 @@ FindInPageWidget::FindInPageWidget(Tab* tab, WebContentView* content_view)
     separator->setObjectName("LadybirdFindInPageSeparator");
     separator->setFixedSize(1, 16);
 
-    m_exit_button = make_button("Close find");
+    m_exit_button = make_button(WebView::ui_text("Close find"sv));
     m_exit_button->setIconSize({ 12, 12 });
     connect(m_exit_button, &QPushButton::clicked, this, [this] {
         close_bar();
@@ -308,14 +316,21 @@ void FindInPageWidget::hideEvent(QHideEvent*)
 
 void FindInPageWidget::update_result_label(size_t current_match_index, Optional<size_t> const& total_match_count)
 {
-    if (total_match_count.has_value()) {
-        set_has_no_matches(total_match_count.value() == 0);
+    m_current_match_index = current_match_index;
+    m_total_match_count = total_match_count;
+    show_result_label();
+}
 
-        auto label_text = "No matches"_string;
-        if (total_match_count.value() > 0)
-            label_text = MUST(String::formatted("{} of {}", current_match_index + 1, total_match_count.value()));
+void FindInPageWidget::show_result_label()
+{
+    if (m_total_match_count.has_value()) {
+        set_has_no_matches(m_total_match_count.value() == 0);
 
-        m_result_label->setText(qstring_from_ak_string(label_text));
+        auto label_text = m_total_match_count.value() > 0
+            ? WebView::ui_text("{0} of {1}"sv, { String::number(m_current_match_index + 1), String::number(m_total_match_count.value()) })
+            : WebView::ui_text("No matches"sv);
+
+        m_result_label->setText(translate_to_qstring(label_text));
         m_result_label->setVisible(true);
     } else {
         set_has_no_matches(false);

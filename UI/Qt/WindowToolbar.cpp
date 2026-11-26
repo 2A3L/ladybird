@@ -22,6 +22,7 @@
 #include <UI/Qt/FeedbackPopover.h>
 #include <UI/Qt/Icon.h>
 #include <UI/Qt/LadybirdButton.h>
+#include <UI/Qt/Localization.h>
 #include <UI/Qt/LocationEdit.h>
 #if defined(AK_OS_MACOS)
 #    include <UI/Qt/MacWindow.h>
@@ -485,7 +486,9 @@ public:
         : ToolbarButton(parent)
     {
         setObjectName("LadybirdDownloadsButton");
-        setAccessibleName("Downloads");
+        bind_ui_text(*this, WebView::ui_text("Downloads"sv), [this](QString const& text) {
+            setAccessibleName(text);
+        });
         // NB: The button stays checked while the list of downloads is open.
         setCheckable(true);
         setAutoRaise(true);
@@ -624,8 +627,9 @@ public:
         : ToolbarButton(parent)
     {
         setObjectName("LadybirdFeedbackButton");
-        setToolTip("Send feedback");
-        setAccessibleName("Send feedback");
+        bind_ui_text(*this, WebView::ui_text("Send feedback"sv), [this](QString const&) {
+            update_accessible_name();
+        });
         // NB: The button stays checked while the popover is open.
         setCheckable(true);
         setAutoRaise(true);
@@ -644,12 +648,18 @@ public:
         });
     }
 
+    void update_accessible_name()
+    {
+        setToolTip(translate_to_qstring(WebView::ui_text("Send feedback"sv)));
+        setAccessibleName(translate_to_qstring(WebView::ui_text(m_crash_reports_waiting ? "Send feedback, crash reports waiting"sv : "Send feedback"sv)));
+    }
+
     void set_crash_reports_waiting(bool crash_reports_waiting)
     {
         if (m_crash_reports_waiting == crash_reports_waiting)
             return;
         m_crash_reports_waiting = crash_reports_waiting;
-        setAccessibleName(crash_reports_waiting ? "Send feedback, crash reports waiting" : "Send feedback");
+        update_accessible_name();
 
         // A dot that is already there when a window opens was not just earned, so it does not animate.
         m_dot_animation.stop();
@@ -919,22 +929,24 @@ public:
 
         row_layout->addLayout(details_layout, 1);
 
-        auto make_action = [&](ChromeIcon icon, QString const& tooltip, auto callback) {
+        auto make_action = [&](ChromeIcon icon, WebView::UIText tooltip, auto callback) {
             auto* button = new ToolbarButton(this);
             button->setObjectName("LadybirdDownloadAction");
             button->setAutoRaise(true);
             button->setIcon(create_chrome_icon(icon, Theme::panel().body));
             button->setIconSize({ 16, 16 });
             button->setFixedSize(28, 28);
-            button->setToolTip(tooltip);
-            button->setAccessibleName(tooltip);
+            bind_ui_text(*button, "tooltip"sv, AK::move(tooltip), [button](QString const& text) {
+                button->setToolTip(text);
+                button->setAccessibleName(text);
+            });
             button->setFocusPolicy(Qt::TabFocus);
             QObject::connect(button, &QToolButton::clicked, this, [this, callback] { callback(*this); });
             row_layout->addWidget(button, 0, Qt::AlignVCenter);
             return button;
         };
 
-        m_pause_button = make_action(ChromeIcon::Pause, "Pause", [](DownloadRow& row) {
+        m_pause_button = make_action(ChromeIcon::Pause, WebView::ui_text("Pause"sv), [](DownloadRow& row) {
             if (row.m_is_paused) {
                 if (row.on_resume_download)
                     row.on_resume_download(row.m_download_id);
@@ -942,22 +954,22 @@ public:
                 row.on_pause_download(row.m_download_id);
             }
         });
-        m_cancel_button = make_action(ChromeIcon::Close, "Cancel", [](DownloadRow& row) {
+        m_cancel_button = make_action(ChromeIcon::Close, WebView::ui_text("Cancel"sv), [](DownloadRow& row) {
             if (row.on_cancel_download)
                 row.on_cancel_download(row.m_download_id);
         });
-        m_retry_button = make_action(ChromeIcon::Reload, "Retry", [](DownloadRow& row) {
+        m_retry_button = make_action(ChromeIcon::Reload, WebView::ui_text("Retry"sv), [](DownloadRow& row) {
             if (row.on_resume_download)
                 row.on_resume_download(row.m_download_id);
         });
 #if defined(AK_OS_MACOS)
-        auto show_in_folder_name = "Show in Finder";
+        auto show_in_folder_name = "Show in Finder"sv;
 #elif defined(AK_OS_WINDOWS)
-        auto show_in_folder_name = "Show in Explorer";
+        auto show_in_folder_name = "Show in Explorer"sv;
 #else
-        auto show_in_folder_name = "Show in Files";
+        auto show_in_folder_name = "Show in Files"sv;
 #endif
-        m_show_in_folder_button = make_action(ChromeIcon::Folder, show_in_folder_name, [](DownloadRow& row) {
+        m_show_in_folder_button = make_action(ChromeIcon::Folder, WebView::ui_text(show_in_folder_name), [](DownloadRow& row) {
             if (row.on_show_in_folder)
                 row.on_show_in_folder(row.m_download_id);
         });
@@ -1002,8 +1014,10 @@ public:
 
         m_is_paused = download.status == WebView::FileDownloader::DownloadStatus::Paused;
         m_pause_button->setIcon(create_chrome_icon(m_is_paused ? ChromeIcon::Download : ChromeIcon::Pause, Theme::chrome_palette(*this)));
-        m_pause_button->setToolTip(m_is_paused ? "Resume" : "Pause");
-        m_pause_button->setAccessibleName(m_pause_button->toolTip());
+        bind_ui_text(*m_pause_button, "tooltip"sv, WebView::ui_text(m_is_paused ? "Resume"sv : "Pause"sv), [button = m_pause_button](QString const& text) {
+            button->setToolTip(text);
+            button->setAccessibleName(text);
+        });
 
         set_visible(*m_pause_button, download.can_resume && is_active);
         set_visible(*m_cancel_button, is_active);
@@ -1047,10 +1061,16 @@ public:
 
         auto* header = new QHBoxLayout;
         header->setContentsMargins(10, 0, 4, 6);
-        auto* title = new QLabel("Downloads", this);
+        auto* title = new QLabel(this);
+        bind_ui_text(*title, WebView::ui_text("Downloads"sv), [title](QString const& text) {
+            title->setText(text);
+        });
         title->setObjectName("LadybirdDownloadsPopoverTitle");
         header->addWidget(title, 1);
-        auto* clear_button = new QPushButton("Clear finished", this);
+        auto* clear_button = new QPushButton(this);
+        bind_ui_text(*clear_button, WebView::ui_text("Clear finished"sv), [clear_button](QString const& text) {
+            clear_button->setText(text);
+        });
         clear_button->setObjectName("LadybirdPopoverLink");
         clear_button->setCursor(Qt::PointingHandCursor);
         QObject::connect(clear_button, &QPushButton::clicked, this, [this] {
@@ -1060,7 +1080,10 @@ public:
         header->addWidget(clear_button);
         layout->addLayout(header);
 
-        m_empty_label = new QLabel("No downloads", this);
+        m_empty_label = new QLabel(this);
+        bind_ui_text(*m_empty_label, WebView::ui_text("No downloads"sv), [this](QString const& text) {
+            m_empty_label->setText(text);
+        });
         m_empty_label->setObjectName("LadybirdDownloadsEmpty");
         m_empty_label->setAlignment(Qt::AlignCenter);
         m_empty_label->setMinimumHeight(80);
@@ -1090,7 +1113,10 @@ public:
         separator_row->addWidget(separator);
         layout->addLayout(separator_row);
 
-        auto* show_all_button = new QPushButton("Show all downloads", this);
+        auto* show_all_button = new QPushButton(this);
+        bind_ui_text(*show_all_button, WebView::ui_text("Show all downloads"sv), [show_all_button](QString const& text) {
+            show_all_button->setText(text);
+        });
         show_all_button->setObjectName("LadybirdPopoverRow");
         QObject::connect(show_all_button, &QPushButton::clicked, this, [this] {
             if (on_open_all_downloads)
@@ -1247,8 +1273,13 @@ WindowToolbar::WindowToolbar(WebView::IsPrivate is_private, QWidget* parent)
     m_reload_action->setShortcuts({});
     m_reload_bypassing_cache_action = create_application_action(*this, application.reload_bypassing_cache_action());
     m_reload_bypassing_cache_action->setShortcuts({});
-    m_stop_action = new QAction("Stop", this);
-    m_stop_action->setToolTip("Stop loading this page");
+    m_stop_action = new QAction(this);
+    bind_ui_text(*m_stop_action, WebView::ui_text("Stop"sv), [this](QString const& text) {
+        m_stop_action->setText(text);
+    });
+    bind_ui_text(*m_stop_action, WebView::ui_text("Stop loading this page"sv), [this](QString const& text) {
+        m_stop_action->setToolTip(text);
+    });
     QObject::connect(m_stop_action, &QAction::triggered, this, [this] {
         if (m_tab && m_tab->is_loaded())
             m_tab->view().stop_loading();
@@ -1934,7 +1965,9 @@ void WindowToolbar::update_window_control_icons()
     auto is_maximized = window()->isMaximized();
     m_minimize_window_button->setIcon(create_chrome_icon(ChromeIcon::WindowMinimize, Theme::chrome_palette(*this)));
     m_maximize_window_button->setIcon(create_chrome_icon(is_maximized ? ChromeIcon::WindowRestore : ChromeIcon::WindowMaximize, Theme::chrome_palette(*this)));
-    m_maximize_window_button->setToolTip(is_maximized ? "Restore" : "Maximize");
+    bind_ui_text(*m_maximize_window_button, "tooltip"sv, WebView::ui_text(is_maximized ? "Restore"sv : "Maximize"sv), [button = m_maximize_window_button](QString const& text) {
+        button->setToolTip(text);
+    });
     m_close_window_button->setIcon(create_chrome_icon(ChromeIcon::WindowClose, Theme::chrome_palette(*this)));
 }
 

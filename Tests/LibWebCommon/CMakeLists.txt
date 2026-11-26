@@ -2,6 +2,7 @@ ladybird_test_suite(LibWebCommon)
 
 set(TEST_SOURCES
     TestCSSPixels.cpp
+    TestCacheStorageProtocol.cpp
     TestConsoleOutputBuffer.cpp
     TestGamepadSharedState.cpp
     TestGamepadStateBuffer.cpp

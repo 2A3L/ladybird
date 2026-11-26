@@ -6,6 +6,7 @@
 
 #include <UI/Qt/ChromeStyle.h>
 #include <UI/Qt/DevToolsBanner.h>
+#include <UI/Qt/Localization.h>
 #include <UI/Qt/StringUtils.h>
 
 #include <QEvent>
@@ -31,18 +32,26 @@ DevToolsBanner::DevToolsBanner(QWidget* parent)
     layout->addWidget(m_label);
     layout->addStretch();
 
-    auto* launch_client_button = new QPushButton("Open client", this);
+    auto* launch_client_button = new QPushButton(this);
+    bind_ui_text(*launch_client_button, WebView::ui_text("Open client"sv), [launch_client_button](QString const& text) {
+        launch_client_button->setText(text);
+    });
     connect(launch_client_button, &QPushButton::clicked, this, &DevToolsBanner::launch_client_requested);
     layout->addWidget(launch_client_button);
 
-    auto* disable_button = new QPushButton("Disable", this);
+    auto* disable_button = new QPushButton(this);
+    bind_ui_text(*disable_button, WebView::ui_text("Disable"sv), [disable_button](QString const& text) {
+        disable_button->setText(text);
+    });
     connect(disable_button, &QPushButton::clicked, this, &DevToolsBanner::disable_requested);
     layout->addWidget(disable_button);
 }
 
 void DevToolsBanner::set_port(u16 port)
 {
-    m_label->setText(qformatted("DevTools is enabled on port {}", port));
+    bind_ui_text(*m_label, "text"sv, WebView::ui_text("DevTools is enabled on port {0}"sv, { String::number(port) }), [this](QString const& text) {
+        m_label->setText(text);
+    });
 }
 
 bool DevToolsBanner::event(QEvent* event)

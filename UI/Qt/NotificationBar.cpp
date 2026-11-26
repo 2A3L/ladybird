@@ -7,6 +7,7 @@
 #include <UI/Qt/ChromeStyle.h>
 #include <UI/Qt/ElidedLabel.h>
 #include <UI/Qt/Icon.h>
+#include <UI/Qt/Localization.h>
 #include <UI/Qt/NotificationBar.h>
 #include <UI/Qt/Theme.h>
 
@@ -63,8 +64,10 @@ NotificationBar::NotificationBar(QWidget& parent, QString const& message, Vector
         m_close_button->setAutoRaise(true);
         m_close_button->setFixedSize(CLOSE_BUTTON_SIZE, CLOSE_BUTTON_SIZE);
         m_close_button->setIconSize({ CLOSE_ICON_SIZE, CLOSE_ICON_SIZE });
-        m_close_button->setToolTip("Dismiss");
-        m_close_button->setAccessibleName("Dismiss");
+        bind_ui_text(*m_close_button, WebView::ui_text("Dismiss"sv), [this](QString const& text) {
+            m_close_button->setToolTip(text);
+            m_close_button->setAccessibleName(text);
+        });
         QObject::connect(m_close_button, &QToolButton::clicked, this, [on_close = AK::move(on_close)] {
             on_close();
         });

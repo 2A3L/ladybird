@@ -58,6 +58,7 @@ set(ABOUT_SETTINGS_RESOURCES
     network.js
     permissions.js
     privacy.js
+    search-text.js
     search.js
     services.js
     startup.js

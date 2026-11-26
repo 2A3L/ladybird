@@ -7,6 +7,7 @@
 #include <UI/Qt/ChromeStyle.h>
 #include <UI/Qt/Icon.h>
 #include <UI/Qt/JavaScriptDialog.h>
+#include <UI/Qt/Localization.h>
 #include <UI/Qt/Motion.h>
 #include <UI/Qt/NativeTextEditingLineEdit.h>
 #include <UI/Qt/Popover.h>
@@ -128,7 +129,7 @@ JavaScriptDialog::JavaScriptDialog(QWidget* parent)
     m_prompt_text->setObjectName("LadybirdJavaScriptDialogPrompt");
     panel_layout->addWidget(m_prompt_text);
 
-    m_block_further_dialogs = new PopoverCheckBox("Don't let this site show more dialogs", m_panel);
+    m_block_further_dialogs = new PopoverCheckBox(translate_to_qstring(WebView::ui_text("Don't let this site show more dialogs"sv)), m_panel);
     m_block_further_dialogs->setObjectName("LadybirdJavaScriptDialogBlockFurtherDialogs");
     panel_layout->addWidget(m_block_further_dialogs);
 
@@ -162,7 +163,7 @@ void JavaScriptDialog::show_alert(QString const& title, QString const& message, 
 
 void JavaScriptDialog::show_before_unload(QString const& title)
 {
-    open(Type::BeforeUnload, title, "Leave this page? Your changes may not be saved.");
+    open(Type::BeforeUnload, title, translate_to_qstring(WebView::ui_text("Leave this page? Your changes may not be saved."sv)));
 }
 
 void JavaScriptDialog::show_confirm(QString const& title, QString const& message, OfferToBlockFurtherDialogs offer_to_block_further_dialogs)
@@ -220,8 +221,8 @@ void JavaScriptDialog::open(Type type, QString const& title, QString const& mess
     if (type == Type::BeforeUnload) {
         VERIFY(ok_button);
         VERIFY(cancel_button);
-        ok_button->setText("Leave");
-        cancel_button->setText("Stay");
+        ok_button->setText(translate_to_qstring(WebView::ui_text("Leave"sv)));
+        cancel_button->setText(translate_to_qstring(WebView::ui_text("Stay"sv)));
     }
     if (ok_button)
         ok_button->setDefault(type != Type::Prompt);
