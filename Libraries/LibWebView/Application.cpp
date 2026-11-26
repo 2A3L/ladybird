@@ -340,6 +340,7 @@ ErrorOr<void> Application::initialize(Main::Arguments const& arguments)
     bool allow_popups = false;
     bool disable_scripting = false;
     bool disable_sql_database = false;
+    bool enable_cache_storage_hub = false;
     Optional<u16> devtools_port;
     Vector<StringView> debug_processes;
     Optional<StringView> profile_process;
@@ -449,6 +450,14 @@ ErrorOr<void> Application::initialize(Main::Arguments const& arguments)
     args_parser.add_option(allow_popups, "Disable popup blocking by default", "allow-popups");
     args_parser.add_option(disable_scripting, "Disable scripting by default", "disable-scripting");
     args_parser.add_option(disable_sql_database, "Disable SQL database", "disable-sql-database");
+    args_parser.add_option(enable_cache_storage_hub,
+        "Experimental, not for normal use: keep Cache Storage in the browser process, shared by all processes of a "
+        "session. On Linux it is saved in the profile; it stays in memory for private windows, with a temporary "
+        "profile, with --disable-sql-database, and when the profile's store cannot be opened. It is off by default "
+        "because its limits fail instead of applying back pressure, the browser process has no budget for response "
+        "bytes, the quota is not divided by site, SQLite runs on the browser's main thread, and contexts such as "
+        "shared workers and blob: workers get errors instead of in-memory caches",
+        "enable-cache-storage-hub");
     args_parser.add_option(file_scheme_urls_have_tuple_origins, "Treat file:// URLs as having tuple origins", "tuple-file-origins");
     args_parser.add_option(Core::ArgsParser::Option {
         .argument_mode = Core::ArgsParser::OptionArgumentMode::Required,
@@ -590,6 +599,7 @@ ErrorOr<void> Application::initialize(Main::Arguments const& arguments)
         .allow_popups = allow_popups ? AllowPopups::Yes : AllowPopups::No,
         .disable_scripting = disable_scripting ? DisableScripting::Yes : DisableScripting::No,
         .disable_sql_database = disable_sql_database ? DisableSQLDatabase::Yes : DisableSQLDatabase::No,
+        .enable_cache_storage_hub = enable_cache_storage_hub ? EnableCacheStorageHub::Yes : EnableCacheStorageHub::No,
         .debug_helper_processes = move(debug_process_types),
         .profile_helper_process = move(profile_process_type),
         .profile_tool = selected_profile_tool,
@@ -1247,6 +1257,33 @@ Web::HTML::CrossProcessId Application::allocate_ui_process_cross_process_id()
     return m_ui_process_cross_process_id_allocator.allocate();
 }
 
+// A session gets its store as it is created, before any of its processes exist, so that they all use it from the start.
+void Application::install_experimental_cache_storage_store(BrowsingSession& session)
+{
+    if (the().m_browser_options.enable_cache_storage_hub == EnableCacheStorageHub::No)
+        return;
+
+    auto store = [&]() -> ErrorOr<NonnullOwnPtr<CacheStorageStore>> {
+#if defined(AK_OS_LINUX)
+        // A private session never writes Cache Storage to disk, and neither does a browser told to keep no database.
+        if (session.is_private() == IsPrivate::No && !profile().is_temporary() && the().m_browser_options.disable_sql_database == DisableSQLDatabase::No) {
+            auto directory = LexicalPath::join(profile().paths().data, "CacheStorage"sv).string();
+            auto file_backed_store = CacheStorageStore::create_file_backed(directory);
+            if (!file_backed_store.is_error())
+                return file_backed_store.release_value();
+            warnln("Unable to open the Cache Storage store in {}: {}. Cache Storage stays in memory and nothing of this run will be saved.", directory, file_backed_store.error());
+        }
+#endif
+        return CacheStorageStore::create_memory_backed();
+    }();
+    if (store.is_error()) {
+        warnln("Unable to create a Cache Storage store: {}", store.error());
+        return;
+    }
+    if (!session.install_cache_storage_store(store.release_value()))
+        warnln("Unable to install a Cache Storage store in the browsing session");
+}
+
 NonnullRefPtr<BrowsingSession> Application::session_for_new_view(IsPrivate is_private)
 {
     if (is_private == IsPrivate::No)
@@ -1256,6 +1293,7 @@ NonnullRefPtr<BrowsingSession> Application::session_for_new_view(IsPrivate is_pr
         return *session;
 
     auto session = BrowsingSession::create(IsPrivate::Yes);
+    install_experimental_cache_storage_store(*session);
     session->permission_manager = PermissionManager::create_for_private_session(*the().m_default_session->permission_manager);
     session->permission_manager->register_observer(*the().m_permission_manager_observer);
     session->permission_manager->on_deadlines_changed = [] { the().schedule_permission_expiry(); };
@@ -1862,6 +1900,7 @@ static void notify_devtools_of_storage_change(StorageJar& jar, StorageChange con
 ErrorOr<void> Application::launch_services()
 {
     m_default_session = BrowsingSession::create(IsPrivate::No);
+    install_experimental_cache_storage_store(*m_default_session);
     StorageAreaRegistry::the().on_change_for_devtools = [this](StorageJar& jar, WebView::StorageChange const& change) {
         // Only an attached DevTools has anyone to tell, and the lookup below isn't free on a page's write path.
         if (m_devtools)

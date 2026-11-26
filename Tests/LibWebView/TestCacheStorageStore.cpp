@@ -10,6 +10,7 @@
 #include <LibDatabase/ResultRow.h>
 #include <LibTest/TemporaryDirectory.h>
 #include <LibTest/TestCase.h>
+#include <LibWebView/BrowsingSession.h>
 #include <LibWebView/CacheStorageStore.h>
 
 using WebView::CacheStorageStore;
@@ -425,5 +426,25 @@ TEST_CASE(file_backed_store_does_not_recover_a_schema_it_cannot_prepare)
             return {}; }));
         EXPECT_EQ(rows, 1u);
     }
+}
+
+TEST_CASE(private_session_refuses_a_file_backed_store)
+{
+    Test::TemporaryDirectory private_directory { "TestCacheStorageStore"sv };
+    Test::TemporaryDirectory ordinary_directory { "TestCacheStorageStore"sv };
+
+    auto private_session = WebView::BrowsingSession::create(WebView::IsPrivate::Yes);
+    auto file_backed_store = TRY_OR_FAIL(CacheStorageStore::create_file_backed(private_directory.path().string()));
+    EXPECT(file_backed_store->is_file_backed());
+    EXPECT(!private_session->install_cache_storage_store(move(file_backed_store)));
+    EXPECT(!private_session->cache_storage_store());
+
+    auto memory_backed_store = TRY_OR_FAIL(CacheStorageStore::create_memory_backed());
+    EXPECT(!memory_backed_store->is_file_backed());
+    EXPECT(private_session->install_cache_storage_store(move(memory_backed_store)));
+
+    auto ordinary_session = WebView::BrowsingSession::create(WebView::IsPrivate::No);
+    EXPECT(ordinary_session->install_cache_storage_store(TRY_OR_FAIL(CacheStorageStore::create_file_backed(ordinary_directory.path().string()))));
+    EXPECT(ordinary_session->cache_storage_store()->is_file_backed());
 }
 #endif

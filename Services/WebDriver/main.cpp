@@ -38,7 +38,7 @@ static ErrorOr<Core::Process> launch_process(StringView application, ReadonlySpa
     return result;
 }
 
-static Vector<ByteString> create_arguments(ByteString const& webdriver_endpoint, Optional<StringView> profile_name, Optional<StringView> profile_path, bool headless, bool expose_experimental_interfaces, bool expose_internals_object, bool force_cpu_painting, bool disable_sandbox, Optional<StringView> debug_process, Optional<StringView> default_time_zone, Optional<StringView> resource_substitution_map_path, Optional<ByteString> const& proxy_autoconfig_url)
+static Vector<ByteString> create_arguments(ByteString const& webdriver_endpoint, Optional<StringView> profile_name, Optional<StringView> profile_path, bool headless, bool expose_experimental_interfaces, bool expose_internals_object, bool force_cpu_painting, bool disable_sandbox, bool enable_cache_storage_hub, Optional<StringView> debug_process, Optional<StringView> default_time_zone, Optional<StringView> resource_substitution_map_path, Optional<ByteString> const& proxy_autoconfig_url)
 {
     Vector<ByteString> arguments;
 #if defined(AK_OS_MACOS)
@@ -72,6 +72,8 @@ static Vector<ByteString> create_arguments(ByteString const& webdriver_endpoint,
         arguments.append("--force-cpu-painting"sv);
     if (disable_sandbox)
         arguments.append("--disable-sandbox"sv);
+    if (enable_cache_storage_hub)
+        arguments.append("--enable-cache-storage-hub"sv);
 
     if (debug_process.has_value())
         arguments.append(ByteString::formatted("--debug-process={}", debug_process.value()));
@@ -107,6 +109,7 @@ ErrorOr<int> ladybird_main(Main::Arguments arguments)
     bool expose_internals_object = false;
     bool force_cpu_painting = false;
     bool disable_sandbox = false;
+    bool enable_cache_storage_hub = false;
     bool headless = false;
     Optional<StringView> debug_process;
     Optional<StringView> default_time_zone;
@@ -126,6 +129,7 @@ ErrorOr<int> ladybird_main(Main::Arguments arguments)
     args_parser.add_option(expose_internals_object, "Expose internals object", "expose-internals-object");
     args_parser.add_option(force_cpu_painting, "Launch browser with GPU painting disabled", "force-cpu-painting");
     args_parser.add_option(disable_sandbox, "Launch browser with helper process sandboxing disabled", "disable-sandbox");
+    args_parser.add_option(enable_cache_storage_hub, "Launch browser with the experimental Hub-backed Cache Storage (see Ladybird --help)", "enable-cache-storage-hub");
     args_parser.add_option(debug_process, "Wait for a debugger to attach to the given process name (WebContent, RequestServer, etc.)", "debug-process", 0, "process-name");
     args_parser.add_option(headless, "Launch browser without a graphical interface", "headless");
     args_parser.add_option(default_time_zone, "Default time zone", "default-time-zone", 0, "time-zone-id");
@@ -206,7 +210,7 @@ ErrorOr<int> ladybird_main(Main::Arguments arguments)
         }
 
         auto launch_browser_callback = [&](ByteString const& webdriver_endpoint, bool headless, Optional<ByteString> const& proxy_autoconfig_url) {
-            auto arguments = create_arguments(webdriver_endpoint, profile_name, profile_path, headless, expose_experimental_interfaces, expose_internals_object, force_cpu_painting, disable_sandbox, debug_process, default_time_zone, resource_substitution_map_path, proxy_autoconfig_url);
+            auto arguments = create_arguments(webdriver_endpoint, profile_name, profile_path, headless, expose_experimental_interfaces, expose_internals_object, force_cpu_painting, disable_sandbox, enable_cache_storage_hub, debug_process, default_time_zone, resource_substitution_map_path, proxy_autoconfig_url);
             return launch_process("Ladybird"sv, arguments.span());
         };
 
