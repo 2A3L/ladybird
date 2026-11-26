@@ -1772,6 +1772,14 @@ u64 PageClient::page_did_request_storage_usage(Web::HTML::EnvironmentId const& e
     return response->usage();
 }
 
+ErrorOr<void> PageClient::send_cache_storage_request(Web::HTML::EnvironmentId const& environment_id, Web::ServiceWorker::CacheStorageIPC::RequestId request_id, Web::ServiceWorker::CacheStorageIPC::Request&& request)
+{
+    if (m_is_closed)
+        return Error::from_string_literal("Cache Storage page is closed");
+    auto message = TRY(Messages::WebContentClient::CacheStorageRequest::static_encode(m_id, environment_id, request_id, request));
+    return client().post_message(message);
+}
+
 void PageClient::page_did_update_indexed_database(String const& url, Web::IndexedDB::TransactionChanges const& changes)
 {
     if (!has_devtools_client())
@@ -1841,6 +1849,7 @@ void PageClient::page_did_close()
 
     // The heap sweeps a closed page in slices, so its timers can still fire once the cells they would use are gone.
     m_is_closed = true;
+    clear_cache_storage_requests();
 
     // A closed page has no DevTools client.
     if (exchange(m_has_devtools_client, false)) {

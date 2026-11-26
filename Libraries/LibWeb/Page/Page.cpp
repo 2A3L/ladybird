@@ -7,11 +7,14 @@
  */
 
 #include <AK/AnyOf.h>
+#include <AK/NumericLimits.h>
+#include <AK/ScopeGuard.h>
 #include <AK/SourceLocation.h>
 #include <AK/Utf16StringBuilder.h>
 #include <LibAudio/RecordStream.h>
 #include <LibGC/Heap.h>
 #include <LibGC/HeapVector.h>
+#include <LibGC/RootVector.h>
 #include <LibGfx/Bitmap.h>
 #include <LibIPC/Decoder.h>
 #include <LibIPC/Encoder.h>
@@ -78,6 +81,220 @@ void web_webgl_restore_contexts_of_this_thread(JSVM*);
 namespace Web {
 
 GC_DEFINE_ALLOCATOR(Page);
+
+static constexpr size_t maximum_cache_storage_preparations = 64;
+static constexpr size_t maximum_pending_cache_storage_requests = 64;
+static constexpr size_t maximum_pending_cache_storage_bytes = 2 * ServiceWorker::CacheStorageIPC::maximum_snapshot_size;
+
+Optional<ServiceWorker::CacheStorageIPC::StorageError> PageClient::request_cache_storage(HTML::EnvironmentId const& environment_id, ServiceWorker::CacheStorageIPC::Request request, GC::Ptr<CacheStorageCallback> callback)
+{
+    using namespace ServiceWorker::CacheStorageIPC;
+
+    if (environment_id.is_empty())
+        return StorageError::Denied;
+
+    if ((!callback && !request.has<Release>()) || !is_connection_open() || m_next_cache_storage_request_id == NumericLimits<u64>::max())
+        return StorageError::Unavailable;
+
+    // Releasing an acquired lease needs no reply and must work even when the pending request budget is full.
+    if (!callback) {
+        auto request_id = RequestId { m_next_cache_storage_request_id++ };
+        if (send_cache_storage_request(environment_id, request_id, move(request)).is_error())
+            return StorageError::Unavailable;
+        return {};
+    }
+
+    // Reserve space for whichever direction carries the data, including reads whose reply size is not yet known.
+    auto reserved_bytes = request.visit(
+        [](List const&) -> Optional<size_t> { return maximum_name_count * maximum_name_length * sizeof(char16_t); },
+        [](Enumerate const&) -> Optional<size_t> { return maximum_name_count * sizeof(CacheId); },
+        [](Read const&) -> Optional<size_t> { return maximum_snapshot_size; },
+        [](Commit const& operation) -> Optional<size_t> {
+            if (operation.snapshot.bytes.size() > maximum_snapshot_size)
+                return {};
+            return operation.snapshot.bytes.size();
+        },
+        [](Release const&) -> Optional<size_t> { return 0; },
+        [](auto const& operation) -> Optional<size_t> {
+            auto length = operation.name.value.length_in_code_units();
+            if (length > maximum_name_length)
+                return {};
+            return length * sizeof(char16_t);
+        });
+
+    if (!reserved_bytes.has_value())
+        return StorageError::QuotaExceeded;
+    if (m_pending_cache_storage_requests.size() >= maximum_pending_cache_storage_requests)
+        return StorageError::Unavailable;
+
+    auto budget_is_full = *reserved_bytes > maximum_pending_cache_storage_bytes - m_pending_cache_storage_bytes;
+    auto const* read = request.get_pointer<Read>();
+    Optional<CacheId> queued_read;
+    if (read && (budget_is_full || !m_queued_cache_storage_reads.is_empty()))
+        queued_read = read->id;
+    else if (budget_is_full)
+        return StorageError::Unavailable;
+
+    auto request_id = RequestId { m_next_cache_storage_request_id++ };
+    if (m_pending_cache_storage_requests.try_set(request_id, PendingCacheStorageRequest { environment_id, callback, *reserved_bytes, queued_read }).is_error())
+        return StorageError::Unavailable;
+
+    if (queued_read.has_value()) {
+        if (m_queued_cache_storage_reads.try_append(request_id).is_error()) {
+            m_pending_cache_storage_requests.remove(request_id);
+            return StorageError::Unavailable;
+        }
+        return {};
+    }
+
+    m_pending_cache_storage_bytes += *reserved_bytes;
+
+    if (send_cache_storage_request(environment_id, request_id, move(request)).is_error()) {
+        m_pending_cache_storage_requests.remove(request_id);
+        m_pending_cache_storage_bytes -= *reserved_bytes;
+        return StorageError::Unavailable;
+    }
+    return {};
+}
+
+ErrorOr<void> PageClient::send_cache_storage_request(HTML::EnvironmentId const&, ServiceWorker::CacheStorageIPC::RequestId, ServiceWorker::CacheStorageIPC::Request&&)
+{
+    return Error::from_string_literal("Cache Storage transport is unavailable");
+}
+
+void PageClient::drain_queued_cache_storage_reads()
+{
+    using namespace ServiceWorker::CacheStorageIPC;
+
+    if (exchange(m_draining_cache_storage_reads, true))
+        return;
+    ScopeGuard finish_draining = [this] { m_draining_cache_storage_reads = false; };
+
+    while (!m_queued_cache_storage_reads.is_empty() && maximum_snapshot_size <= maximum_pending_cache_storage_bytes - m_pending_cache_storage_bytes) {
+        auto request_id = m_queued_cache_storage_reads.take_first();
+        auto pending = m_pending_cache_storage_requests.find(request_id);
+        VERIFY(pending != m_pending_cache_storage_requests.end());
+        auto cache_id = pending->value.queued_read.release_value();
+        m_pending_cache_storage_bytes += pending->value.reserved_bytes;
+
+        if (send_cache_storage_request(pending->value.environment_id, request_id, Read { cache_id }).is_error()) {
+            auto failed = m_pending_cache_storage_requests.take(request_id).release_value();
+            m_pending_cache_storage_bytes -= failed.reserved_bytes;
+            if (auto callback = failed.callback)
+                (*callback)(StorageError::Unavailable);
+        }
+    }
+}
+
+void PageClient::did_receive_cache_storage_reply(ServiceWorker::CacheStorageIPC::RequestId request_id, ServiceWorker::CacheStorageIPC::Reply reply)
+{
+    using namespace ServiceWorker::CacheStorageIPC;
+
+    auto pending = m_pending_cache_storage_requests.find(request_id);
+    if (pending == m_pending_cache_storage_requests.end() || pending->value.queued_read.has_value())
+        return;
+    auto pending_request = m_pending_cache_storage_requests.take(request_id).release_value();
+    m_pending_cache_storage_bytes -= pending_request.reserved_bytes;
+    ScopeGuard drain_reads = [this] { drain_queued_cache_storage_reads(); };
+
+    if (auto callback = pending_request.callback) {
+        (*callback)(move(reply));
+        return;
+    }
+
+    // The Hub may have acquired these leases before learning that their environment was discarded.
+    if (auto* opened = reply.get_pointer<Opened>())
+        (void)request_cache_storage(pending_request.environment_id, Release { opened->id });
+    else if (auto* found = reply.get_pointer<Found>(); found && found->id.has_value())
+        (void)request_cache_storage(pending_request.environment_id, Release { *found->id });
+    else if (auto* cache_ids = reply.get_pointer<CacheIds>()) {
+        for (auto cache_id : cache_ids->ids)
+            (void)request_cache_storage(pending_request.environment_id, Release { cache_id });
+    }
+}
+
+ErrorOr<u64> PageClient::register_cache_storage_preparation(HTML::EnvironmentId const& environment_id, GC::Ref<GC::Function<void()>> cancel)
+{
+    if (environment_id.is_empty() || !is_connection_open()
+        || m_cache_storage_preparations.size() >= maximum_cache_storage_preparations
+        || m_next_cache_storage_preparation_id == NumericLimits<u64>::max())
+        return Error::from_string_literal("Cache Storage preparation is unavailable");
+
+    auto id = m_next_cache_storage_preparation_id++;
+    TRY(m_cache_storage_preparations.try_set(id, CacheStoragePreparation { environment_id, cancel }));
+    return id;
+}
+
+void PageClient::unregister_cache_storage_preparation(u64 id)
+{
+    m_cache_storage_preparations.remove(id);
+}
+
+void PageClient::cancel_cache_storage_preparations(HTML::EnvironmentId const* environment_id)
+{
+    if (m_cache_storage_preparations.is_empty())
+        return;
+
+    GC::RootVector<GC::Ref<GC::Function<void()>>, maximum_cache_storage_preparations> canceled_preparations;
+    m_cache_storage_preparations.remove_all_matching([&](auto, auto& preparation) {
+        if (environment_id && preparation.environment_id != *environment_id)
+            return false;
+        canceled_preparations.append(preparation.cancel);
+        return true;
+    });
+
+    // A cleanup callback may unregister itself, so detach all matching entries first.
+    for (auto& cancel : canceled_preparations)
+        (*cancel)();
+}
+
+void PageClient::cancel_cache_storage_requests(HTML::EnvironmentId const& environment_id)
+{
+    using namespace ServiceWorker::CacheStorageIPC;
+
+    GC::RootVector<GC::Ref<CacheStorageCallback>, maximum_pending_cache_storage_requests> canceled_callbacks;
+    for (auto& pending : m_pending_cache_storage_requests) {
+        if (pending.value.environment_id == environment_id) {
+            if (auto callback = exchange(pending.value.callback, nullptr))
+                canceled_callbacks.append(*callback);
+        }
+    }
+
+    m_queued_cache_storage_reads.remove_all_matching([&](auto request_id) {
+        auto pending = m_pending_cache_storage_requests.find(request_id);
+        VERIFY(pending != m_pending_cache_storage_requests.end());
+        if (pending->value.environment_id != environment_id)
+            return false;
+        m_pending_cache_storage_requests.remove(pending);
+        return true;
+    });
+    if (!canceled_callbacks.is_empty()) {
+        // The callback may need to settle a promise in another realm. Defer it until document destruction returns.
+        Platform::EventLoopPlugin::the().deferred_invoke(GC::create_function(heap(), GC::captures(move(canceled_callbacks)), [](auto& callbacks) {
+            for (auto& callback : callbacks)
+                (*callback)(StorageError::Unavailable);
+        }));
+    }
+
+    cancel_cache_storage_preparations(&environment_id);
+}
+
+void PageClient::clear_cache_storage_requests()
+{
+    m_pending_cache_storage_requests.clear();
+    m_queued_cache_storage_reads.clear();
+    m_pending_cache_storage_bytes = 0;
+    cancel_cache_storage_preparations(nullptr);
+}
+
+void PageClient::visit_edges(Visitor& visitor)
+{
+    Base::visit_edges(visitor);
+    for (auto& pending_request : m_pending_cache_storage_requests)
+        visitor.visit(pending_request.value.callback);
+    for (auto& preparation : m_cache_storage_preparations)
+        visitor.visit(preparation.value.cancel);
+}
 
 GC::Ref<Page> Page::create(GC::Ref<PageClient> page_client)
 {

@@ -66,6 +66,7 @@
 #include <LibWebCommon/WebView/Debugger.h>
 #include <LibWebCommon/WebView/DictionaryLookup.h>
 #include <LibWebCommon/Permissions/Permissions.h>
+#include <LibWebCommon/ServiceWorker/CacheStorageProtocol.h>
 #include <LibWebCommon/WebView/Geolocation.h>
 #include <LibWebCommon/WebView/PageInfo.h>
 #include <LibWebCommon/WebView/StorageSetResult.h>
@@ -101,6 +102,7 @@ endpoint WebContentServer routed by Web::PageId page_id
     connect_to_compositor_process(IPC::TransportHandle handle, IPC::TransportHandle render_clock_handle) =|
     compositor_process_reconnected() =|
     set_site_compatibility_data(JsonValue data) =|
+    set_cache_storage_hub_enabled(bool enabled) =|
     set_permission_snapshot(Web::Permissions::PermissionSnapshot snapshot) =|
 
     update_system_theme(Web::PageId page_id, Core::AnonymousBuffer theme_buffer) =|
@@ -171,6 +173,7 @@ endpoint WebContentServer routed by Web::PageId page_id
     get_source(Web::PageId page_id) =|
     inspect_dom_tree(Web::PageId page_id) =|
     inspect_storage(Web::PageId page_id, Web::StorageAPI::StorageEndpointType storage_endpoint, u64 request_id) =|
+    cache_storage_reply(Web::PageId page_id, Web::ServiceWorker::CacheStorageIPC::RequestId request_id, Web::ServiceWorker::CacheStorageIPC::Reply reply) =|
     storage_area_changed(Web::StorageAPI::StorageAreaId area_id, Optional<Utf16String> key, Optional<Utf16String> old_value, Optional<Utf16String> new_value, String url) =|
     storage_area_write_acknowledged(Web::StorageAPI::StorageAreaId area_id) =|
     storage_area_write_refused(Web::StorageAPI::StorageAreaId area_id, Vector<Utf16String> keys, Vector<Utf16String> values) =|

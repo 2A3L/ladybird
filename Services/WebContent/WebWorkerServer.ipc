@@ -10,6 +10,7 @@
 #include <LibWebCommon/HTML/WorkerTypes.h>
 #include <LibWebCommon/Loader/NavigatorCompatibilityMode.h>
 #include <LibWebCommon/Permissions/Permissions.h>
+#include <LibWebCommon/ServiceWorker/CacheStorageProtocol.h>
 
 endpoint WebWorkerServer {
     connect_to_request_server(IPC::TransportHandle handle, int client_id, Optional<Utf16String> top_level_site) =|
@@ -34,6 +35,7 @@ endpoint WebWorkerServer {
     connect_shared_worker(Web::HTML::TransferDataEncoder message_port,
                           Web::HTML::SerializedEnvironmentSettingsObject outside_settings) =|
 
+    cache_storage_reply(Web::ServiceWorker::CacheStorageIPC::RequestId request_id, Web::ServiceWorker::CacheStorageIPC::Reply reply) =|
     close_worker() =|
 
     broadcast_channel_message(Web::HTML::BroadcastChannelMessage message) =|

@@ -11,6 +11,7 @@
 #include <LibWebView/HSTSStore.h>
 #include <LibWebView/PermissionManager.h>
 #include <LibWebView/StorageJar.h>
+#include <LibWebView/WebContentClient.h>
 
 namespace WebView {
 
@@ -29,6 +30,13 @@ bool BrowsingSession::install_cache_storage_store(NonnullOwnPtr<CacheStorageStor
     if (m_cache_storage_store)
         return false;
     m_cache_storage_store = move(store);
+
+    // Processes of this session that are already running start using the store too.
+    WebContentClient::for_each_client([&](WebContentClient& client) {
+        if (&client.session() == this)
+            client.async_set_cache_storage_hub_enabled(true);
+        return IterationDecision::Continue;
+    });
     return true;
 }
 

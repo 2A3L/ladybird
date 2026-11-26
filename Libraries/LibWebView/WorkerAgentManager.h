@@ -28,6 +28,7 @@
 #include <LibWebCommon/Permissions/Permissions.h>
 #include <LibWebView/BlobURLStore.h>
 #include <LibWebView/BrowsingSession.h>
+#include <LibWebView/CacheStoragePartition.h>
 #include <LibWebView/Export.h>
 #include <LibWebView/Forward.h>
 
@@ -38,6 +39,8 @@ public:
     AK_ALLOC_WITH_KMALLOC;
 
     static WorkerAgentManager& the();
+    void revoke_invalid_cache_storage_grants();
+    void note_cache_storage_grant() { m_has_cache_storage_grants = true; }
 
     struct SharedWorkerKey {
         // NB: No owner finds a worker of another browsing session, as step 11.3 allows.
@@ -114,6 +117,7 @@ private:
         RequestServerSiteBindings const& request_server_site_bindings;
         Vector<LocalFileRoot> local_file_roots;
         bool has_cross_site_ancestor { false };
+        Optional<CacheStorageWorkerGrant> cache_storage_grant;
     };
     void register_dedicated_worker(DedicatedWorkerOwner const&, CanonicalEnvironmentSettingsObject const& outside_settings, Web::HTML::WorkerAgentStartRequest, IPC::TransportHandle worker_transport);
 
@@ -121,7 +125,7 @@ private:
     static bool page_environment_has_cross_site_ancestor(WebContentClient&, Web::PageId, CanonicalEnvironmentSettingsObject const&);
     bool has_reached_worker_limit(IsPrivate, CanonicalEnvironmentSettingsObject const& outside_settings) const;
     ErrorOr<NonnullRefPtr<WebWorkerClient>> create_worker_client(NonnullOwnPtr<IPC::Transport>, Web::HTML::WorkerAgentId, WebContentClient& host, RequestServerSiteBindings const& owner_request_server_site_bindings);
-    static void start_worker(WebWorkerClient&, Web::HTML::WorkerAgentStartRequest, CanonicalEnvironmentSettingsObject const& outside_settings, bool has_cross_site_ancestor, Vector<LocalFileRoot> const& owner_local_file_roots, bool has_process_to_itself);
+    static void start_worker(WebWorkerClient&, Web::HTML::WorkerAgentStartRequest, CanonicalEnvironmentSettingsObject const& outside_settings, bool has_cross_site_ancestor, Vector<LocalFileRoot> const& owner_local_file_roots, bool has_process_to_itself, Optional<CacheStorageWorkerGrant> cache_storage_grant = {});
 
     void notify_worker_script_load_failure(Owner const&);
     void notify_worker_content_security_policy_violation(Owner const&, u64 policy_index, String const& effective_directive, URL::URL const& resource);
@@ -168,6 +172,7 @@ private:
     // A worker counts toward the workers of its top-level site until its thread closes its connection as it ends, also
     // once its agent is gone.
     Vector<NonnullRefPtr<WebWorkerClient>> m_clients;
+    bool m_has_cache_storage_grants { false };
 
     Web::HTML::WorkerAgentId m_next_agent_id { 0 };
     HashMap<Web::HTML::WorkerAgentId, WorkerAgent> m_agents;

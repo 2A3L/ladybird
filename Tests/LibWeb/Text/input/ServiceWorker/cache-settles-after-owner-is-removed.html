@@ -1,0 +1,40 @@
+<!doctype html>
+<script src="../include.js"></script>
+<script>
+    function settle(label, operations) {
+        const timeout = new Promise(resolve => setTimeout(() => resolve("pending"), 1000));
+        return Promise.all(operations.map(([, promise]) => Promise.race([
+            promise.then(() => "resolved", error => `rejected: ${error.name}`),
+            timeout,
+        ]))).then(results => operations.forEach(([name], index) => println(`${label} ${name}: ${results[index]}`)));
+    }
+
+    function start(cache, Response) {
+        return [
+            ["keys", cache.keys()],
+            ["matchAll", cache.matchAll()],
+            ["put", cache.put("https://cache.test/other", new Response("other"))],
+            ["delete", cache.delete("https://cache.test/entry")],
+        ];
+    }
+
+    promiseTest(async () => {
+        const frame = document.createElement("iframe");
+        document.body.appendChild(frame);
+        const frameWindow = frame.contentWindow;
+        const FrameResponse = frameWindow.Response;
+
+        const cache = await frameWindow.caches.open("cache-settles-after-owner-is-removed");
+        await cache.put("https://cache.test/entry", new FrameResponse("body"));
+
+        // Start each operation from the frame, then remove the frame before any of them can settle.
+        const before = start(cache, FrameResponse);
+        frame.remove();
+        await settle("started before removal:", before);
+
+        // Once the frame's document is gone, operations on its cache still settle.
+        await new Promise(resolve => setTimeout(resolve, 100));
+        await settle("started after removal:", start(cache, FrameResponse));
+        await caches.delete("cache-settles-after-owner-is-removed");
+    });
+</script>

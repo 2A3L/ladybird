@@ -8,7 +8,12 @@
 #include <LibWebView/AudioServerControlClient.h>
 #include <LibWebView/BlobURLStore.h>
 #include <LibWebView/BrowsingSession.h>
+#include <LibWebView/CacheStorageLeaseRegistry.h>
+#include <LibWebView/CacheStoragePartition.h>
+#include <LibWebView/CanonicalBrowsingContext.h>
+#include <LibWebView/CanonicalDocument.h>
 #include <LibWebView/CanonicalEnvironmentSettingsObject.h>
+#include <LibWebView/CanonicalWindow.h>
 #include <LibWebView/CookieJar.h>
 #include <LibWebView/HSTSStore.h>
 #include <LibWebView/HelperProcess.h>
@@ -16,6 +21,7 @@
 #include <LibWebView/PermissionManager.h>
 #include <LibWebView/Utilities.h>
 #include <LibWebView/WebContentClient.h>
+#include <LibWebView/WebContentPage.h>
 #include <LibWebView/WebWorkerClient.h>
 #include <LibWebView/WorkerAgentManager.h>
 
@@ -35,6 +41,7 @@ WebWorkerClient::WebWorkerClient(NonnullOwnPtr<IPC::Transport> transport, Browsi
 
 WebWorkerClient::~WebWorkerClient()
 {
+    CacheStorageLeaseRegistry::the().remove_owner({ CacheStorageOwner::Kind::Worker, this });
     remove_blob_url_entries();
 }
 
@@ -57,6 +64,9 @@ void WebWorkerClient::did_misbehave(StringView message_name, StringView reason)
 
 void WebWorkerClient::die()
 {
+    CacheStorageLeaseRegistry::the().remove_owner({ CacheStorageOwner::Kind::Worker, this });
+    m_cache_storage_grant = {};
+    WorkerAgentManager::the().revoke_invalid_cache_storage_grants();
     remove_blob_url_entries();
     WorkerAgentManager::the().worker_did_die(m_agent_id);
 
@@ -100,17 +110,98 @@ void WebWorkerClient::remove_blob_url_entries()
         session->blob_url_store->remove_entries_added_by(WeakPtr<WebWorkerClient> { *this });
 }
 
-void WebWorkerClient::set_inside_settings(NonnullOwnPtr<CanonicalWorkerEnvironmentSettingsObject> inside_settings, Vector<LocalFileRoot> local_file_roots)
+void WebWorkerClient::set_inside_settings(NonnullOwnPtr<CanonicalWorkerEnvironmentSettingsObject> inside_settings, Vector<LocalFileRoot> local_file_roots, Optional<CacheStorageWorkerGrant> cache_storage_grant)
 {
+    if (m_inside_settings)
+        CacheStorageLeaseRegistry::the().remove_owner({ CacheStorageOwner::Kind::Worker, this });
     m_top_level_origin = inside_settings->top_level_origin();
     m_inside_settings = move(inside_settings);
+    m_cache_storage_grant = move(cache_storage_grant);
     m_local_file_roots = move(local_file_roots);
+    if (m_cache_storage_grant.has_value())
+        WorkerAgentManager::the().note_cache_storage_grant();
+    WorkerAgentManager::the().revoke_invalid_cache_storage_grants();
 }
 
 void WebWorkerClient::forget_inside_settings_of_closing_worker()
 {
+    CacheStorageLeaseRegistry::the().remove_owner({ CacheStorageOwner::Kind::Worker, this });
     m_inside_settings = nullptr;
+    m_cache_storage_grant = {};
+    WorkerAgentManager::the().revoke_invalid_cache_storage_grants();
     m_script_blob_url = {};
+}
+
+void WebWorkerClient::cache_storage_request(Web::HTML::EnvironmentId environment_id, Web::ServiceWorker::CacheStorageIPC::RequestId request_id, Web::ServiceWorker::CacheStorageIPC::Request request)
+{
+    using namespace Web::ServiceWorker::CacheStorageIPC;
+    if (!is_open())
+        return;
+    auto session = m_session.strong_ref();
+    // Without a store in the worker's session, nothing is looked up for the request.
+    Reply reply = StorageError::Unavailable;
+    if (session && session->cache_storage_store()) {
+        reply = StorageError::Denied;
+        revoke_invalid_cache_storage_grant();
+        if (auto environment = hosted_environment(environment_id); environment.has_value()) {
+            // The registry authorizes a release by ownership alone, so no grant is needed to return a lease.
+            Optional<String> key;
+            if (!request.has<Release>())
+                key = cache_storage_partition_grant(*environment);
+            if (key.has_value() || request.has<Release>())
+                reply = CacheStorageLeaseRegistry::the().dispatch({ CacheStorageOwner::Kind::Worker, this }, *session, *environment, key, request);
+        }
+    }
+    auto send_reply = [&]() -> ErrorOr<void> {
+        auto message = TRY(Messages::WebWorkerServer::CacheStorageReply::static_encode(request_id, reply));
+        return post_message(message);
+    };
+    if (auto result = send_reply(); result.is_error()) {
+        dbgln("Could not send Cache Storage reply: {}", result.error());
+        // Closing settles the peer's requests and revokes worker leases if the reply could not be queued.
+        RefPtr protected_client = this;
+        protected_client->shutdown();
+    }
+}
+
+Optional<String> WebWorkerClient::cache_storage_partition_grant(CanonicalEnvironmentSettingsObject const& environment) const
+{
+    auto session = m_session.strong_ref();
+    if (!is_open() || !session || !host() || !host()->is_open() || &host()->session() != session.ptr()
+        || !m_inside_settings || &environment != m_inside_settings.ptr() || !m_cache_storage_grant.has_value())
+        return {};
+    auto key = cache_storage_partition_key(*m_inside_settings, m_inside_settings->has_cross_site_ancestor());
+    if (!key.has_value() || *key != m_cache_storage_grant->partition_key)
+        return {};
+    Optional<String> parent_key;
+    if (auto page = m_cache_storage_grant->parent_page.strong_ref()) {
+        auto document = m_cache_storage_grant->parent_document.strong_ref();
+        if (!document || !page->is_open() || !page->routed_connection() || &page->client().session() != session.ptr() || document->host() != page)
+            return {};
+        auto const& window = document->relevant_global_object();
+        if (document->browsing_context().has_been_discarded() || document->browsing_context().active_document().ptr() != document.ptr()
+            || !window.has_associated_document() || &window.associated_document() != document.ptr())
+            return {};
+        parent_key = page->cache_storage_partition_key_for_active_environment(window.relevant_settings_object());
+    } else if (auto worker = m_cache_storage_grant->parent_worker.strong_ref()) {
+        if (!m_cache_storage_grant->parent_worker_environment_id.has_value() || worker->session() != session)
+            return {};
+        auto parent_environment = worker->hosted_environment(*m_cache_storage_grant->parent_worker_environment_id);
+        if (!parent_environment.has_value())
+            return {};
+        parent_key = worker->cache_storage_partition_grant(*parent_environment);
+    }
+    if (!parent_key.has_value() || *parent_key != *key)
+        return {};
+    return key;
+}
+
+void WebWorkerClient::revoke_invalid_cache_storage_grant()
+{
+    if (m_cache_storage_grant.has_value() && (!m_inside_settings || !cache_storage_partition_grant(*m_inside_settings).has_value())) {
+        m_cache_storage_grant = {};
+        CacheStorageLeaseRegistry::the().remove_owner({ CacheStorageOwner::Kind::Worker, this });
+    }
 }
 
 // The environment a worker names is its own.

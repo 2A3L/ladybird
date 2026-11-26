@@ -123,6 +123,7 @@ private:
     virtual void disconnect_from_image_decoder() override;
     virtual void connect_to_compositor_process(IPC::TransportHandle handle, IPC::TransportHandle render_clock_handle) override;
     virtual void set_site_compatibility_data(JsonValue data) override;
+    virtual void set_cache_storage_hub_enabled(bool enabled) override;
     virtual void set_permission_snapshot(Web::Permissions::PermissionSnapshot snapshot) override;
     virtual void compositor_process_reconnected() override;
     virtual void update_system_theme(Web::PageId page_id, Core::AnonymousBuffer) override;
@@ -193,6 +194,7 @@ private:
     virtual void storage_area_write_acknowledged(Web::StorageAPI::StorageAreaId area_id) override;
     virtual void storage_area_write_refused(Web::StorageAPI::StorageAreaId area_id, Vector<Utf16String> keys, Vector<Utf16String> values) override;
     virtual void storage_area_reset(Web::StorageAPI::StorageAreaId area_id, Vector<Utf16String> keys, Vector<Utf16String> values) override;
+    virtual void cache_storage_reply(Web::PageId, Web::ServiceWorker::CacheStorageIPC::RequestId, Web::ServiceWorker::CacheStorageIPC::Reply) override;
     virtual void inspect_dom_node(Web::PageId page_id, WebView::DOMNodeProperties::Type, Web::UniqueNodeID node_id, Optional<Web::CSS::PseudoElement> pseudo_element, JsonValue options) override;
     virtual void inspect_grid_layouts(Web::PageId page_id, Web::UniqueNodeID root_node_id) override;
     virtual void inspect_current_grid(Web::PageId page_id, Web::UniqueNodeID node_id) override;

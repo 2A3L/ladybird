@@ -1201,6 +1201,8 @@ ErrorOr<NonnullRefPtr<WebContentClient>> Application::create_web_content_client(
 
     TRY(client->request_server_site_bindings().connect(session));
     client->async_set_site_compatibility_data(m_site_compatibility_data);
+    // Only a session with a store shares Cache Storage through the Hub. The process uses its own caches otherwise.
+    client->async_set_cache_storage_hub_enabled(session.cache_storage_store() != nullptr);
     // A process learns a site's permissions only when it shows that site and asks; at launch, just the defaults.
     client->async_set_permission_snapshot(client->session().permission_manager->snapshot_for({}));
 
