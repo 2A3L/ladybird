@@ -25,6 +25,7 @@ namespace WebView {
 //     again when the language changes. They must be string literals, or other text that lives as long as the program.
 //
 // The catalog belongs to the thread of the browser controls, and is neither read nor changed on any other thread.
+// See Documentation/InterfaceTranslations.md for where text goes.
 struct UIText {
     StringView source;
     StringView context;

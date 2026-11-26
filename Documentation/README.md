@@ -25,6 +25,7 @@ If you have any questions that are not answered here or in the [FAQ](FAQ.md), yo
 * [Coding Style](CodingStyle.md)
 * [Common Patterns](Patterns.md)
 * [Guidelines for Text in UI](HumanInterfaceGuidelines/Text.md)
+* [Interface Translations](InterfaceTranslations.md)
 * [EventLoop](EventLoop.md)
 * [Smart Pointers](SmartPointers.md)
 * [String Formatting](StringFormatting.md)
