@@ -23,6 +23,7 @@
 #include <UI/Qt/ChromeStyle.h>
 #include <UI/Qt/Icon.h>
 #include <UI/Qt/LadybirdButton.h>
+#include <UI/Qt/Localization.h>
 #include <UI/Qt/SessionStore.h>
 #if defined(AK_OS_MACOS)
 #    include <UI/Qt/MacWindow.h>
@@ -3202,7 +3203,9 @@ TabWidget::TabWidget(WebView::IsPrivate is_private, QWidget* parent)
     m_new_tab_button->setObjectName("LadybirdNewTabButton");
     m_new_tab_button->setFixedSize(32, 32);
     m_new_tab_button->setFocusPolicy(Qt::NoFocus);
-    m_new_tab_button->setToolTip(qformatted("New Tab  {}", QKeySequence(QKeySequence::AddTab).toString(QKeySequence::NativeText)));
+    bind_ui_text(*m_new_tab_button, WebView::ui_text("New Tab  {0}"sv, { ak_string_from_qstring(QKeySequence(QKeySequence::AddTab).toString(QKeySequence::NativeText)) }), [this](QString const& text) {
+        m_new_tab_button->setToolTip(text);
+    });
     m_new_tab_button->installEventFilter(this);
 
     // The all-tabs button follows the sidebar's side, and sits beside the Ladybird button with horizontal tabs.
@@ -3213,7 +3216,9 @@ TabWidget::TabWidget(WebView::IsPrivate is_private, QWidget* parent)
     m_all_tabs_button->setAutoRaise(true);
     m_all_tabs_button->setIconSize(QSize(16, 16));
     m_all_tabs_button->setFocusPolicy(Qt::NoFocus);
-    m_all_tabs_button->setToolTip(qformatted("All Tabs  {}", Application::the().search_tabs_action()->shortcut().toString(QKeySequence::NativeText)));
+    bind_ui_text(*m_all_tabs_button, WebView::ui_text("All Tabs  {0}"sv, { ak_string_from_qstring(Application::the().search_tabs_action()->shortcut().toString(QKeySequence::NativeText)) }), [this](QString const& text) {
+        m_all_tabs_button->setToolTip(text);
+    });
     // The button stays pressed while the list is open.
     m_all_tabs_button->setCheckable(true);
     QObject::connect(m_all_tabs_button, &QToolButton::clicked, this, [this] {
@@ -3228,8 +3233,10 @@ TabWidget::TabWidget(WebView::IsPrivate is_private, QWidget* parent)
     m_bookmarks_menu_button->setAutoRaise(true);
     m_bookmarks_menu_button->setIconSize({ 16, 16 });
     m_bookmarks_menu_button->setFocusPolicy(Qt::NoFocus);
-    m_bookmarks_menu_button->setToolTip("Bookmarks");
-    m_bookmarks_menu_button->setAccessibleName("Bookmarks");
+    bind_ui_text(*m_bookmarks_menu_button, WebView::ui_text("Bookmarks"sv), [this](QString const& text) {
+        m_bookmarks_menu_button->setToolTip(text);
+        m_bookmarks_menu_button->setAccessibleName(text);
+    });
     m_bookmarks_menu_button->setCheckable(true);
     m_bookmarks_menu = create_application_menu(*m_bookmarks_menu_button, Application::bookmarks().menu());
     QObject::connect(m_bookmarks_menu_button, &QToolButton::clicked, this, [this] {
@@ -3644,13 +3651,13 @@ void TabWidget::update_cpu_painting_bar()
         return;
 
     Vector<NotificationBar::Button> buttons;
-    buttons.append({ "Report a bug", [this] {
+    buttons.append({ translate_to_qstring(WebView::ui_text("Report a bug"sv)), [this] {
                         auto* browser_window = qobject_cast<BrowserWindow*>(window());
                         if (!browser_window)
                             return;
                         browser_window->new_tab_from_url(Application::the().new_bug_report_url(), Web::HTML::ActivateTab::Yes, BrowserWindow::TabLocation::after_current_tab());
                     } });
-    show_notification_bar(NotificationBarSlot::CpuPainting, "Pages are painted on the CPU, which can be slow.", AK::move(buttons), [] {
+    show_notification_bar(NotificationBarSlot::CpuPainting, translate_to_qstring(WebView::ui_text("Pages are painted on the CPU, which can be slow."sv)), AK::move(buttons), [] {
         Application::the().dismiss_cpu_painting_bar();
     });
 }
@@ -4676,14 +4683,14 @@ static QString time_since_closed(AK::Duration duration)
 {
     auto minutes = duration.to_seconds() / 60;
     if (minutes < 1)
-        return QStringLiteral("Just now");
+        return translate_to_qstring(WebView::ui_text("Just now"sv));
     if (minutes < 60)
-        return qformatted("{} min ago", minutes);
+        return translate_to_qstring(WebView::ui_text("{0} min ago"sv, { String::number(minutes) }));
     auto hours = minutes / 60;
     if (hours < 24)
-        return hours == 1 ? QStringLiteral("1 hour ago") : qformatted("{} hours ago", hours);
+        return translate_to_qstring(WebView::ui_plural(hours, "{0} hour ago"sv, "{0} hours ago"sv));
     auto days = hours / 24;
-    return days == 1 ? QStringLiteral("Yesterday") : qformatted("{} days ago", days);
+    return days == 1 ? translate_to_qstring(WebView::ui_text("Yesterday"sv)) : translate_to_qstring(WebView::ui_text("{0} days ago"sv, { String::number(days) }));
 }
 
 void TabWidget::show_all_tabs()
@@ -4774,7 +4781,7 @@ void TabWidget::update_all_tabs_entries()
             auto entry = browser_window->history_entry_for_url(unit.active_url);
             auto title = entry.has_value() && entry->title.has_value() && !entry->title->is_empty() ? qstring_from_ak_string(*entry->title) : qstring_from_ak_string(unit.active_url.serialize());
             if (unit.was_window)
-                title = unit.tab_count == 1 ? QStringLiteral("Window with 1 tab") : qformatted("Window with {} tabs", unit.tab_count);
+                title = translate_to_qstring(WebView::ui_plural(static_cast<i64>(unit.tab_count), "Window with {0} tab"sv, "Window with {0} tabs"sv));
             closed_entries.append({
                 .icon = entry.has_value() && entry->favicon_png.has_value() ? favicon_from_png(entry->favicon_png->bytes(), TAB_ICON_SIZE) : QIcon {},
                 .title = AK::move(title),
@@ -5561,7 +5568,9 @@ void TabWidget::update_window_button_icons()
         auto is_maximized = window()->isMaximized();
         m_minimize_window_button->setIcon(create_chrome_icon(ChromeIcon::WindowMinimize, Theme::chrome_palette(*this)));
         m_maximize_window_button->setIcon(create_chrome_icon(is_maximized ? ChromeIcon::WindowRestore : ChromeIcon::WindowMaximize, Theme::chrome_palette(*this)));
-        m_maximize_window_button->setToolTip(is_maximized ? "Restore" : "Maximize");
+        bind_ui_text(*m_maximize_window_button, "tooltip"sv, WebView::ui_text(is_maximized ? "Restore"sv : "Maximize"sv), [button = m_maximize_window_button](QString const& text) {
+            button->setToolTip(text);
+        });
         m_close_window_button->setIcon(create_chrome_icon(ChromeIcon::WindowClose, Theme::chrome_palette(*this)));
     }
 
@@ -5767,8 +5776,10 @@ TabMicrophoneIndicator::TabMicrophoneIndicator(QWidget* parent)
     : QLabel(parent)
 {
     setObjectName("LadybirdTabMicrophone");
-    setToolTip("Using your microphone");
-    setAccessibleName("Using your microphone");
+    bind_ui_text(*this, WebView::ui_text("Using your microphone"sv), [this](QString const& text) {
+        setToolTip(text);
+        setAccessibleName(text);
+    });
     setFocusPolicy(Qt::NoFocus);
     set_placement(m_placement);
     hide();

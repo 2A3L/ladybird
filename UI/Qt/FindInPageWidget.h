@@ -8,6 +8,7 @@
 
 #include <AK/kmalloc.h>
 #include <LibWebView/Forward.h>
+#include <UI/Qt/Localization.h>
 #include <UI/Qt/WebContentView.h>
 
 #include <QCheckBox>
@@ -55,6 +56,7 @@ private:
     void update_chrome_style();
     void update_icons();
     void set_has_no_matches(bool);
+    void show_result_label();
 
     Tab* m_tab { nullptr };
     WebContentView* m_content_view { nullptr };
@@ -67,6 +69,8 @@ private:
     QWidget* m_field { nullptr };
     QLabel* m_search_icon { nullptr };
     QLabel* m_result_label { nullptr };
+    size_t m_current_match_index { 0 };
+    Optional<size_t> m_total_match_count;
     bool m_is_updating_chrome_style { false };
     bool m_has_no_matches { false };
     u64 m_selected_text_request_id { 0 };

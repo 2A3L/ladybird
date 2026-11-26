@@ -1,3 +1,4 @@
+import { onInterfaceLanguageChange, t } from "../l10n.js";
 import { registerDialogDeepLink } from "./dialog-deep-link.js";
 
 const defaultZoomLevel = document.querySelector("#default-zoom-level");
@@ -11,7 +12,7 @@ const HOST_SETTINGS = {
     "force-dark": {
         title: "Force dark mode overrides",
         key: "forceDarkPerHost",
-        format: enabled => (enabled ? "On" : "Off"),
+        format: enabled => (enabled ? t("On") : t("Off")),
     },
     zoom: {
         title: "Page zoom overrides",
@@ -24,7 +25,8 @@ let CONTENT = {};
 let CURRENT_HOST_SETTING = null;
 
 function renderHostSettings() {
-    const { key, format } = HOST_SETTINGS[CURRENT_HOST_SETTING];
+    const { title, key, format } = HOST_SETTINGS[CURRENT_HOST_SETTING];
+    hostSettingsTitle.textContent = t(title);
     const overrides = Object.entries(CONTENT[key] ?? {}).sort(([a], [b]) => a.localeCompare(b));
     hostSettingsList.replaceChildren();
     hostSettingsResetAll.disabled = overrides.length === 0;
@@ -32,7 +34,7 @@ function renderHostSettings() {
     if (overrides.length === 0) {
         const placeholder = document.createElement("div");
         placeholder.className = "dialog-list-item-placeholder";
-        placeholder.textContent = "No site overrides";
+        placeholder.textContent = t("No site overrides");
         hostSettingsList.appendChild(placeholder);
     }
 
@@ -51,8 +53,8 @@ function renderHostSettings() {
 
         const reset = document.createElement("button");
         reset.className = "secondary-button";
-        reset.textContent = "Use default";
-        reset.setAttribute("aria-label", `Use default for ${host}`);
+        reset.textContent = t("Use default");
+        reset.setAttribute("aria-label", t("Use default for {0}", [host]));
         reset.addEventListener("click", () => {
             ladybird.sendMessage("resetHostSetting", { setting: CURRENT_HOST_SETTING, host });
         });
@@ -61,14 +63,13 @@ function renderHostSettings() {
     }
 }
 
-for (const [setting, { title }] of Object.entries(HOST_SETTINGS)) {
+for (const setting of Object.keys(HOST_SETTINGS)) {
     registerDialogDeepLink({
         hash: setting,
         tab: "appearance",
         dialog: hostSettings,
         onOpen: () => {
             CURRENT_HOST_SETTING = setting;
-            hostSettingsTitle.textContent = title;
             renderHostSettings();
         },
     });
@@ -148,6 +149,12 @@ defaultZoomLevel.addEventListener("change", () => {
 enableForceDark.addEventListener("change", () => {
     CONTENT.enableForceDark = enableForceDark.checked;
     ladybird.sendMessage("setContentSettings", CONTENT);
+});
+
+onInterfaceLanguageChange(() => {
+    if (hostSettings.open) {
+        renderHostSettings();
+    }
 });
 
 document.addEventListener("WebUIMessage", event => {

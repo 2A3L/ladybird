@@ -1,14 +1,22 @@
-import { localizeAttributes, localizeStaticText, onInterfaceLanguageChange, setInterfaceLanguage, t } from "../l10n.js";
+import { localizeStaticText, onInterfaceLanguageChange, setInterfaceLanguage, t } from "../l10n.js";
 
 const languageSelect = document.querySelector("#interface-language");
 
-// Only static browser-owned text is translated. User-provided names and site data are left untouched.
+// The English text stays searchable in any language, as the settings are called that elsewhere.
+for (const panel of document.querySelectorAll(".tab-panel")) {
+    panel.dataset.sourceTitle = panel.dataset.title;
+    for (const item of panel.querySelectorAll(".card-title, .card-group, .card-body")) {
+        item.dataset.sourceText = item.textContent;
+    }
+}
+
+// Only static browser-owned text is translated. Text made by the scripts is translated as it is made, and
+// user-provided names and site data are left untouched.
 localizeStaticText([
     document.querySelector(".settings-sidebar"),
-    document.querySelector("#tab-appearance"),
+    ...document.querySelectorAll(".tab-panel, dialog"),
     document.querySelector("#search-empty"),
 ]);
-localizeAttributes(document.querySelectorAll(".tab-panel[data-title]"), ["data-title"]);
 
 onInterfaceLanguageChange(language => {
     languageSelect.value = language;

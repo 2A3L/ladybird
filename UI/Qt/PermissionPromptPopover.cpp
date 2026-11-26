@@ -6,6 +6,7 @@
 
 #include <UI/Qt/ChromeStyle.h>
 #include <UI/Qt/Icon.h>
+#include <UI/Qt/Localization.h>
 #include <UI/Qt/PermissionPromptPopover.h>
 #include <UI/Qt/StringUtils.h>
 #include <UI/Qt/Theme.h>
@@ -26,9 +27,9 @@ static constexpr int PERMISSION_PROMPT_WIDTH = 352;
 static QString requester_text(WebView::PermissionPromptRequest const& request)
 {
     if (request.is_file)
-        return QStringLiteral("This file");
+        return translate_to_qstring(WebView::ui_text("This file"sv));
     if (request.top_level_origin.is_opaque())
-        return QStringLiteral("This page");
+        return translate_to_qstring(WebView::ui_text("This page"sv));
 
     auto host = qstring_from_ak_string(request.top_level_origin.host().serialize());
     if (auto port = request.top_level_origin.port(); port.has_value())
@@ -36,15 +37,55 @@ static QString requester_text(WebView::PermissionPromptRequest const& request)
     return host;
 }
 
-static QString feature_text(Web::Permissions::PermissionName name)
+// Each sentence is translated whole, as how a feature reads into a sentence depends on the language.
+static WebView::UIText request_text(Web::Permissions::PermissionName name, String requester)
 {
     switch (name) {
     case Web::Permissions::PermissionName::Geolocation:
-        return QStringLiteral("know your location");
+        return WebView::ui_text("{0} wants to know your location"sv, { AK::move(requester) });
     case Web::Permissions::PermissionName::Microphone:
-        return QStringLiteral("use your microphone");
+        return WebView::ui_text("{0} wants to use your microphone"sv, { AK::move(requester) });
     case Web::Permissions::PermissionName::Notifications:
-        return QStringLiteral("send you notifications");
+        return WebView::ui_text("{0} wants to send you notifications"sv, { AK::move(requester) });
+    }
+    VERIFY_NOT_REACHED();
+}
+
+static WebView::UIText notice_title_text(Web::Permissions::PermissionName name)
+{
+    switch (name) {
+    case Web::Permissions::PermissionName::Geolocation:
+        return WebView::ui_text("Ladybird can't know your location"sv);
+    case Web::Permissions::PermissionName::Microphone:
+        return WebView::ui_text("Ladybird can't use your microphone"sv);
+    case Web::Permissions::PermissionName::Notifications:
+        return WebView::ui_text("Ladybird can't send you notifications"sv);
+    }
+    VERIFY_NOT_REACHED();
+}
+
+static WebView::UIText os_hint_text(Web::Permissions::PermissionName name)
+{
+    switch (name) {
+    case Web::Permissions::PermissionName::Geolocation:
+        return WebView::ui_text("Your system will then ask you to let Ladybird know your location."sv);
+    case Web::Permissions::PermissionName::Microphone:
+        return WebView::ui_text("Your system will then ask you to let Ladybird use your microphone."sv);
+    case Web::Permissions::PermissionName::Notifications:
+        return WebView::ui_text("Your system will then ask you to let Ladybird send you notifications."sv);
+    }
+    VERIFY_NOT_REACHED();
+}
+
+static WebView::UIText os_denied_text(Web::Permissions::PermissionName name)
+{
+    switch (name) {
+    case Web::Permissions::PermissionName::Geolocation:
+        return WebView::ui_text("Your system's privacy settings don't let Ladybird know your location."sv);
+    case Web::Permissions::PermissionName::Microphone:
+        return WebView::ui_text("Your system's privacy settings don't let Ladybird use your microphone."sv);
+    case Web::Permissions::PermissionName::Notifications:
+        return WebView::ui_text("Your system's privacy settings don't let Ladybird send you notifications."sv);
     }
     VERIFY_NOT_REACHED();
 }
@@ -75,7 +116,9 @@ PermissionPromptPopover::PermissionPromptPopover(QWidget* parent, WebView::Permi
     : Popover(parent)
     , m_request(request)
 {
-    setAccessibleName("Permission request");
+    bind_ui_text(*this, WebView::ui_text("Permission request"sv), [this](QString const& text) {
+        setAccessibleName(text);
+    });
     card().setObjectName("LadybirdPermissionPrompt");
     card().setFixedWidth(PERMISSION_PROMPT_WIDTH);
 
@@ -92,8 +135,8 @@ PermissionPromptPopover::PermissionPromptPopover(QWidget* parent, WebView::Permi
     header->addWidget(m_icon_tile, 0, Qt::AlignTop);
     auto is_notice = request.kind == WebView::PermissionPromptKind::SystemDeniedNotice;
     auto title_text = is_notice
-        ? QStringLiteral("Ladybird can't %1").arg(feature_text(request.name))
-        : QStringLiteral("%1 wants to %2").arg(requester_text(request), feature_text(request.name));
+        ? translate_to_qstring(notice_title_text(request.name))
+        : translate_to_qstring(request_text(request.name, ak_string_from_qstring(requester_text(request))));
     auto* title = new QLabel(title_text, &card());
     title->setObjectName("LadybirdPermissionPromptTitle");
     title->setTextFormat(Qt::PlainText);
@@ -102,14 +145,14 @@ PermissionPromptPopover::PermissionPromptPopover(QWidget* parent, WebView::Permi
     layout->addLayout(header);
 
     // Shown while the system hasn't yet been asked whether Ladybird may use the feature: it asks right after this prompt.
-    auto* hint = new QLabel(QStringLiteral("Your system will then ask you to let Ladybird %1.").arg(feature_text(request.name)), &card());
+    auto* hint = new QLabel(translate_to_qstring(os_hint_text(request.name)), &card());
     hint->setObjectName("LadybirdPermissionPromptHint");
     hint->setWordWrap(true);
     hint->setVisible(request.show_os_hint);
     layout->addWidget(hint);
 
     if (is_notice) {
-        auto* body = new QLabel(QStringLiteral("Your system's privacy settings don't let Ladybird %1.").arg(feature_text(request.name)), &card());
+        auto* body = new QLabel(translate_to_qstring(os_denied_text(request.name)), &card());
         body->setObjectName("LadybirdPermissionPromptBody");
         body->setWordWrap(true);
         layout->addWidget(body);
@@ -128,18 +171,18 @@ PermissionPromptPopover::PermissionPromptPopover(QWidget* parent, WebView::Permi
     };
     if (is_notice) {
         // The notice decides nothing for the site, so either button only closes it.
-        auto* open_settings = add_button("LadybirdPermissionPromptOpenSettings", QStringLiteral("Open Settings"), Web::Permissions::PromptOutcome::Dismissed);
+        auto* open_settings = add_button("LadybirdPermissionPromptOpenSettings", translate_to_qstring(WebView::ui_text("Open Settings"sv)), Web::Permissions::PromptOutcome::Dismissed);
         QObject::connect(open_settings, &QPushButton::clicked, this, [this] {
             if (on_open_settings)
                 on_open_settings();
         });
-        add_button("LadybirdPermissionPromptNotNow", QStringLiteral("Not now"), Web::Permissions::PromptOutcome::Dismissed);
+        add_button("LadybirdPermissionPromptNotNow", translate_to_qstring(WebView::ui_text("Not now"sv)), Web::Permissions::PromptOutcome::Dismissed);
     } else {
         auto one_time_grant = offers_one_time_grant(request.name);
-        add_button("LadybirdPermissionPromptAllowAlways", one_time_grant ? QStringLiteral("Allow while visiting the site") : QStringLiteral("Allow"), Web::Permissions::PromptOutcome::AllowAlways);
+        add_button("LadybirdPermissionPromptAllowAlways", translate_to_qstring(WebView::ui_text(one_time_grant ? "Allow while visiting the site"sv : "Allow"sv)), Web::Permissions::PromptOutcome::AllowAlways);
         if (one_time_grant)
-            add_button("LadybirdPermissionPromptAllowOnce", QStringLiteral("Allow this time"), Web::Permissions::PromptOutcome::AllowOnce);
-        add_button("LadybirdPermissionPromptBlock", QStringLiteral("Never allow"), Web::Permissions::PromptOutcome::Block);
+            add_button("LadybirdPermissionPromptAllowOnce", translate_to_qstring(WebView::ui_text("Allow this time"sv)), Web::Permissions::PromptOutcome::AllowOnce);
+        add_button("LadybirdPermissionPromptBlock", translate_to_qstring(WebView::ui_text("Never allow"sv)), Web::Permissions::PromptOutcome::Block);
     }
 
     update_icon();

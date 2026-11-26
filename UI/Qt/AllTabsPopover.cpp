@@ -7,6 +7,7 @@
 #include <UI/Qt/AllTabsPopover.h>
 #include <UI/Qt/ChromeStyle.h>
 #include <UI/Qt/Icon.h>
+#include <UI/Qt/Localization.h>
 #include <UI/Qt/Theme.h>
 
 #include <QAction>
@@ -216,7 +217,9 @@ private:
 AllTabsPopover::AllTabsPopover(QWidget* parent)
     : Popover(parent)
 {
-    setAccessibleName("All tabs");
+    bind_ui_text(*this, WebView::ui_text("All tabs"sv), [this](QString const& text) {
+        setAccessibleName(text);
+    });
     card().setObjectName("LadybirdAllTabsPopover");
     card().setFixedWidth(POPOVER_WIDTH);
 
@@ -226,7 +229,9 @@ AllTabsPopover::AllTabsPopover(QWidget* parent)
 
     m_search_field = new QLineEdit(&card());
     m_search_field->setObjectName("LadybirdAllTabsSearch");
-    m_search_field->setAccessibleName("Search tabs");
+    bind_ui_text(*m_search_field, WebView::ui_text("Search tabs"sv), [this](QString const& text) {
+        m_search_field->setAccessibleName(text);
+    });
     m_search_field->addAction(create_chrome_icon(ChromeIcon::Search, Theme::panel().muted), QLineEdit::LeadingPosition);
     m_search_field->installEventFilter(this);
     QObject::connect(m_search_field, &QLineEdit::textChanged, this, [this] { update_search(); });
@@ -270,7 +275,10 @@ AllTabsPopover::AllTabsPopover(QWidget* parent)
     separator_row->addWidget(separator);
     section_layout->addLayout(separator_row);
     section_layout->addSpacing(6);
-    auto* heading = new QLabel("Recently closed", m_recently_closed_section);
+    auto* heading = new QLabel(m_recently_closed_section);
+    bind_ui_text(*heading, WebView::ui_text("Recently closed"sv), [heading](QString const& text) {
+        heading->setText(text);
+    });
     heading->setObjectName("LadybirdAllTabsHeading");
     heading->setContentsMargins(10, 4, 10, 4);
     section_layout->addWidget(heading);
@@ -295,7 +303,9 @@ void AllTabsPopover::set_recently_closed(Vector<Entry> entries)
 
 void AllTabsPopover::set_tabs(Vector<Entry> entries)
 {
-    m_search_field->setPlaceholderText(QString("Search %1 tabs").arg(entries.size()));
+    bind_ui_text(*m_search_field, "placeholder"sv, WebView::ui_plural(static_cast<i64>(entries.size()), "Search {0} tab"sv, "Search {0} tabs"sv), [this](QString const& text) {
+        m_search_field->setPlaceholderText(text);
+    });
     // NB: The search and the tab picked with the keyboard stay as they were while the list is filled again for tabs that
     //     open, close or change behind it. If that tab is gone, the highlight starts over.
     QPointer<QObject> keyboard_tab = isVisible() ? m_tab_list->keyboard_tab() : nullptr;

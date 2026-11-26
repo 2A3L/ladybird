@@ -47,6 +47,7 @@ set(TEST_SOURCES
     TestStringUtils.cpp
     TestWebCompatReportReview.cpp
     TestWebContentViewInputMethod.cpp
+    TestWidgetTranslation.cpp
     TestWindowCloseCoordinator.cpp
 )
 
@@ -68,7 +69,7 @@ if (LINUX AND NOT ANDROID)
 endif()
 
 target_sources(TestUIQt PRIVATE ${TEST_SOURCES})
-set_property(SOURCE TestLadybirdMenu.cpp TestProcessManagerWindow.cpp APPEND PROPERTY COMPILE_DEFINITIONS TEST_RESOURCE_ROOT="${LADYBIRD_SOURCE_DIR}/Base/res")
+set_property(SOURCE TestLadybirdMenu.cpp TestProcessManagerWindow.cpp TestWidgetTranslation.cpp APPEND PROPERTY COMPILE_DEFINITIONS TEST_RESOURCE_ROOT="${LADYBIRD_SOURCE_DIR}/Base/res")
 
 # QtTestMain runs on the offscreen platform plugin. Static Qt needs it imported explicitly, and Windows needs it
 # copied alongside the default platform plugin deployed by the ladybird target.
