@@ -13,6 +13,7 @@
 #include <UI/Qt/Application.h>
 #include <UI/Qt/ApplicationActions.h>
 #include <UI/Qt/HubConnection.h>
+#include <UI/Qt/Localization.h>
 #include <UI/Qt/Tab.h>
 
 #include <QApplication>
@@ -105,55 +106,55 @@ ApplicationActions::ApplicationActions(PageOptions const& options)
     VERIFY(!s_the);
     s_the = this;
 
-    m_reload_action = Action::create("Reload"sv, ActionID::Reload, on_active_view([](RemoteView& view) {
+    m_reload_action = Action::create(WebView::ui_text("Reload"sv), ActionID::Reload, on_active_view([](RemoteView& view) {
         view.reload();
     }));
-    m_reload_bypassing_cache_action = Action::create("Reload Without Cache"sv, ActionID::ReloadBypassingCache, on_active_view([](RemoteView& view) {
+    m_reload_bypassing_cache_action = Action::create(WebView::ui_text("Reload Without Cache"sv), ActionID::ReloadBypassingCache, on_active_view([](RemoteView& view) {
         view.reload(WebView::BypassCache::Yes);
     }));
 
-    m_undo_action = Action::create("Undo"sv, ActionID::Undo, on_focused_text_field_or_active_view(undo_text_field, [](RemoteView& view) {
+    m_undo_action = Action::create(WebView::ui_text("Undo"sv), ActionID::Undo, on_focused_text_field_or_active_view(undo_text_field, [](RemoteView& view) {
         HubConnection::the().async_view_undo(view.view_id());
     }));
-    m_redo_action = Action::create("Redo"sv, ActionID::Redo, on_focused_text_field_or_active_view(redo_text_field, [](RemoteView& view) {
+    m_redo_action = Action::create(WebView::ui_text("Redo"sv), ActionID::Redo, on_focused_text_field_or_active_view(redo_text_field, [](RemoteView& view) {
         HubConnection::the().async_view_redo(view.view_id());
     }));
-    m_copy_selection_action = Action::create("Copy"sv, ActionID::CopySelection, on_focused_text_field_or_active_view(copy_text_field, [](RemoteView& view) {
+    m_copy_selection_action = Action::create(WebView::ui_text("Copy"sv), ActionID::CopySelection, on_focused_text_field_or_active_view(copy_text_field, [](RemoteView& view) {
         view.selected_text()->when_resolved([](ByteString const& text) {
             if (!text.is_empty())
                 Application::the().set_clipboard_text(MUST(String::from_byte_string(text)));
         });
     }));
-    m_cut_selection_action = Action::create("Cut"sv, ActionID::CutSelection, on_focused_text_field_or_active_view(cut_text_field, [](RemoteView& view) {
+    m_cut_selection_action = Action::create(WebView::ui_text("Cut"sv), ActionID::CutSelection, on_focused_text_field_or_active_view(cut_text_field, [](RemoteView& view) {
         HubConnection::the().async_view_cut_selection(view.view_id());
     }));
-    m_paste_action = Action::create("Paste"sv, ActionID::Paste, on_focused_text_field_or_active_view(paste_text_field, [](RemoteView& view) {
+    m_paste_action = Action::create(WebView::ui_text("Paste"sv), ActionID::Paste, on_focused_text_field_or_active_view(paste_text_field, [](RemoteView& view) {
         HubConnection::the().async_view_paste(view.view_id(), Web::Clipboard::PasteMode::AllMimeTypes);
     }));
-    m_paste_and_match_style_action = Action::create("Paste and Match Style"sv, ActionID::PasteAndMatchStyle, on_focused_text_field_or_active_view(paste_and_match_style_text_field, [](RemoteView& view) {
+    m_paste_and_match_style_action = Action::create(WebView::ui_text("Paste and Match Style"sv), ActionID::PasteAndMatchStyle, on_focused_text_field_or_active_view(paste_and_match_style_text_field, [](RemoteView& view) {
         HubConnection::the().async_view_paste(view.view_id(), Web::Clipboard::PasteMode::PlainTextOnly);
     }));
-    m_select_all_action = Action::create("Select All"sv, ActionID::SelectAll, on_focused_text_field_or_active_view(select_all_text_field, [](RemoteView& view) {
+    m_select_all_action = Action::create(WebView::ui_text("Select All"sv), ActionID::SelectAll, on_focused_text_field_or_active_view(select_all_text_field, [](RemoteView& view) {
         HubConnection::the().async_view_select_all(view.view_id());
     }));
 
-    m_open_about_page_action = Action::create("About Ladybird"sv, ActionID::OpenAboutPage, [] {
+    m_open_about_page_action = Action::create(WebView::ui_text("About Ladybird"sv), ActionID::OpenAboutPage, [] {
         Application::the().activate_or_open_tab_with_url(URL::about_version());
     });
-    m_open_downloads_page_action = Action::create("Downloads"sv, ActionID::ViewDownloads, [] {
+    m_open_downloads_page_action = Action::create(WebView::ui_text("Downloads"sv), ActionID::ViewDownloads, [] {
         Application::the().activate_or_open_tab_with_url(URL::about_downloads());
     });
-    m_open_settings_page_action = Action::create("Settings"sv, ActionID::OpenSettingsPage, [] {
+    m_open_settings_page_action = Action::create(WebView::ui_text("Settings"sv), ActionID::OpenSettingsPage, [] {
         Application::the().activate_or_open_tab_with_url(URL::about_settings());
     });
 
-    m_zoom_in_action = Action::create("Zoom In"sv, ActionID::ZoomIn, on_active_view([](RemoteView& view) {
+    m_zoom_in_action = Action::create(WebView::ui_text("Zoom In"sv), ActionID::ZoomIn, on_active_view([](RemoteView& view) {
         view.zoom_in();
     }));
-    m_zoom_out_action = Action::create("Zoom Out"sv, ActionID::ZoomOut, on_active_view([](RemoteView& view) {
+    m_zoom_out_action = Action::create(WebView::ui_text("Zoom Out"sv), ActionID::ZoomOut, on_active_view([](RemoteView& view) {
         view.zoom_out();
     }));
-    m_reset_zoom_action = Action::create("Reset Zoom"sv, ActionID::ResetZoom, on_active_view([](RemoteView& view) {
+    m_reset_zoom_action = Action::create(WebView::ui_text("Reset Zoom"sv), ActionID::ResetZoom, on_active_view([](RemoteView& view) {
         view.reset_zoom();
     }));
 
@@ -204,41 +205,41 @@ ApplicationActions::ApplicationActions(PageOptions const& options)
     m_motion_menu->add_action(Action::create_checkable("No Preference"sv, ActionID::PreferredMotion, set_motion(Web::CSS::PreferredMotion::NoPreference)));
     m_motion_menu->items().first().get<NonnullRefPtr<Action>>()->set_checked(true);
 
-    m_toggle_vertical_tabs_expanded_action = Action::create("Show Sidebar"sv, ActionID::ToggleVerticalTabsExpanded, [] {
+    m_toggle_vertical_tabs_expanded_action = Action::create(WebView::ui_text("Show Sidebar"sv), ActionID::ToggleVerticalTabsExpanded, [] {
         auto tab_settings = Application::settings().tab_settings();
         tab_settings.vertical_tabs_expanded = !tab_settings.vertical_tabs_expanded;
         Application::settings().set_tab_settings(tab_settings);
     });
     update_vertical_tabs_action();
 
-    m_toggle_menu_bar_action = Action::create_checkable("Show Menu Bar"sv, ActionID::ToggleMenuBar, [] {
+    m_toggle_menu_bar_action = Action::create_checkable(WebView::ui_text("Show Menu Bar"sv), ActionID::ToggleMenuBar, [] {
         auto appearance = Application::settings().appearance();
         appearance.show_menu_bar = !appearance.show_menu_bar;
         Application::settings().set_appearance(appearance);
     });
     m_toggle_menu_bar_action->set_checked(Application::settings().appearance().show_menu_bar);
 
-    m_navigate_back_action = Action::create("Back"sv, ActionID::NavigateBack, on_active_view([](RemoteView& view) {
+    m_navigate_back_action = Action::create(WebView::ui_text("Back"sv), ActionID::NavigateBack, on_active_view([](RemoteView& view) {
         view.traverse_the_history_by_delta(-1);
     }));
-    m_navigate_forward_action = Action::create("Forward"sv, ActionID::NavigateForward, on_active_view([](RemoteView& view) {
+    m_navigate_forward_action = Action::create(WebView::ui_text("Forward"sv), ActionID::NavigateForward, on_active_view([](RemoteView& view) {
         view.traverse_the_history_by_delta(+1);
     }));
 
-    m_history_menu = Menu::create("History"sv);
-    m_history_menu->add_action(Action::create("View History"sv, ActionID::ViewHistory, [] {
+    m_history_menu = Menu::create(WebView::ui_text("History"sv));
+    m_history_menu->add_action(Action::create(WebView::ui_text("View History"sv), ActionID::ViewHistory, [] {
         Application::the().activate_or_open_tab_with_url(URL::about_history());
     }));
     m_history_menu->add_separator();
-    m_history_menu->add_action(Action::create("Clear Browsing Data"sv, ActionID::ClearBrowsingData, [] {
+    m_history_menu->add_action(Action::create(WebView::ui_text("Clear Browsing Data"sv), ActionID::ClearBrowsingData, [] {
         auto url = URL::about_settings();
         url.set_fragment("clearBrowsingData"sv);
         Application::the().activate_or_open_tab_with_url(url);
     }));
 
-    m_inspect_menu = Menu::create("Inspect"sv);
+    m_inspect_menu = Menu::create(WebView::ui_text("Inspect"sv));
 
-    m_view_source_action = Action::create("View Page Source"sv, ActionID::ViewSource, on_active_view([](RemoteView& view) {
+    m_view_source_action = Action::create(WebView::ui_text("View Page Source"sv), ActionID::ViewSource, on_active_view([](RemoteView& view) {
         HubConnection::the().async_view_get_source(view.view_id());
     }));
     m_inspect_menu->add_action(*m_view_source_action);
@@ -271,7 +272,7 @@ void ApplicationActions::create_debug_menu(PageOptions const& options)
 {
     auto& settings = Application::settings();
 
-    m_debug_menu = Menu::create("Debug"sv);
+    m_debug_menu = Menu::create(WebView::ui_text("Debug"sv));
     m_debug_menu->set_visible(settings.config_variable_as_bool(WebView::ConfigVariableID::ShowAdvancedDebugMenu));
     auto dump_menu = Menu::create("Dump"sv);
     dump_menu->add_action(Action::create("Session History Tree"sv, ActionID::DumpSessionHistoryTree, debug_request("dump-session-history"sv)));
@@ -406,7 +407,7 @@ void ApplicationActions::update_vertical_tabs_action()
     auto const& tab_settings = Application::settings().tab_settings();
     m_toggle_vertical_tabs_expanded_action->set_visible(tab_settings.vertical_tabs_enabled);
     m_toggle_vertical_tabs_expanded_action->set_engaged(tab_settings.vertical_tabs_expanded);
-    auto text = tab_settings.vertical_tabs_expanded ? "Hide Sidebar"sv : "Show Sidebar"sv;
+    auto text = WebView::ui_text(tab_settings.vertical_tabs_expanded ? "Hide Sidebar"sv : "Show Sidebar"sv);
     m_toggle_vertical_tabs_expanded_action->set_text(text);
     m_toggle_vertical_tabs_expanded_action->set_tooltip(text);
 }
@@ -434,6 +435,8 @@ void ApplicationActions::config_variable_changed(WebView::ConfigVariableID varia
         m_debug_menu->set_visible(settings.config_variable_as_bool(WebView::ConfigVariableID::ShowAdvancedDebugMenu));
     if (variable == WebView::ConfigVariableID::ShowTabPerformanceMonitor)
         m_show_tab_performance_monitor_action->set_checked(settings.config_variable_as_bool(WebView::ConfigVariableID::ShowTabPerformanceMonitor));
+    if (variable == WebView::ConfigVariableID::InterfaceLanguage)
+        apply_interface_language(settings.config_variable(WebView::ConfigVariableID::InterfaceLanguage).as_string());
 }
 
 }

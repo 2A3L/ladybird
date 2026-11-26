@@ -39,6 +39,7 @@ if (BUILD_TESTING AND NOT WIN32)
     ladybird_python_test(test-webdriver-element-send-keys-files.py ARGS $<TARGET_FILE:WebDriver>)
     ladybird_python_test(test-webdriver-error-keep-alive.py ARGS $<TARGET_FILE:WebDriver>)
     ladybird_python_test(test-webdriver-force-dark.py ARGS $<TARGET_FILE:WebDriver>)
+    ladybird_python_test(test-webdriver-interface-language.py ARGS $<TARGET_FILE:WebDriver>)
     ladybird_python_test(test-webdriver-permissions-settings.py ARGS $<TARGET_FILE:WebDriver>)
     if (PDFJS_FOUND)
         ladybird_python_test(test-webdriver-pdf-viewer-ignores-the-csp-of-its-pdf.py ARGS $<TARGET_FILE:WebDriver>)
@@ -86,6 +87,7 @@ set(TEST_SOURCES
     TestHSTSStore.cpp
     TestJsonFile.cpp
     TestLingeringIndicator.cpp
+    TestLocalization.cpp
     TestMediaSessionCoordinator.cpp
     TestNavigationLoader.cpp
     TestNotificationAttribution.cpp
@@ -193,6 +195,7 @@ if (NOT WIN32)
 endif()
 
 target_sources(TestLibWebView PRIVATE ${TEST_SOURCES})
+set_property(SOURCE TestLocalization.cpp APPEND PROPERTY COMPILE_DEFINITIONS TEST_RESOURCE_ROOT="${LADYBIRD_SOURCE_DIR}/Base/res")
 target_link_libraries(TestLibWebView PRIVATE LibAudio LibCompositing LibDatabase LibGamepad LibGC LibGfx LibHTTP LibIPC LibRequests LibThreading LibURL LibWeb LibWebCommon LibWebView)
 
 if (APPLE)

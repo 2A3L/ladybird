@@ -68,10 +68,10 @@ RemoteView::RemoteView(Optional<u64> view_id, Hub::View::InitialState initial_st
     m_state = m_view->current_state();
 #endif
 
-    m_navigate_back_action = Action::create("Back"sv, ActionID::NavigateBack, [this] {
+    m_navigate_back_action = Action::create(WebView::ui_text("Back"sv), ActionID::NavigateBack, [this] {
         traverse_the_history_by_delta(-1);
     });
-    m_navigate_forward_action = Action::create("Forward"sv, ActionID::NavigateForward, [this] {
+    m_navigate_forward_action = Action::create(WebView::ui_text("Forward"sv), ActionID::NavigateForward, [this] {
         traverse_the_history_by_delta(+1);
     });
     m_toggle_bookmark_action = Action::create("Toggle Bookmark"sv, ActionID::ToggleBookmarkViaToolbar, [] {

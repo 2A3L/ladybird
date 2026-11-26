@@ -112,23 +112,23 @@ static void add_link_actions(Menu& menu, RemoteView& view, Web::HTML::PreparedNa
 static void add_text_edit_actions(Menu& menu, u64 view_id, bool is_editable, bool has_selected_text)
 {
     if (is_editable) {
-        menu.add_action(Action::create("Cut"sv, ActionID::CutSelection, on_view(view_id, [](RemoteView& view) {
+        menu.add_action(Action::create(WebView::ui_text("Cut"sv), ActionID::CutSelection, on_view(view_id, [](RemoteView& view) {
             HubConnection::the().async_view_cut_selection(view.view_id());
         })));
     }
     if (is_editable || has_selected_text) {
-        menu.add_action(Action::create("Copy"sv, ActionID::CopySelection, on_view(view_id, [](RemoteView& view) {
+        menu.add_action(Action::create(WebView::ui_text("Copy"sv), ActionID::CopySelection, on_view(view_id, [](RemoteView& view) {
             view.selected_text()->when_resolved(copy_text);
         })));
     }
     if (is_editable) {
-        menu.add_action(Action::create("Paste"sv, ActionID::Paste, on_view(view_id, [](RemoteView& view) {
+        menu.add_action(Action::create(WebView::ui_text("Paste"sv), ActionID::Paste, on_view(view_id, [](RemoteView& view) {
             HubConnection::the().async_view_paste(view.view_id(), Web::Clipboard::PasteMode::AllMimeTypes);
         })));
-        menu.add_action(Action::create("Paste and Match Style"sv, ActionID::PasteAndMatchStyle, on_view(view_id, [](RemoteView& view) {
+        menu.add_action(Action::create(WebView::ui_text("Paste and Match Style"sv), ActionID::PasteAndMatchStyle, on_view(view_id, [](RemoteView& view) {
             HubConnection::the().async_view_paste(view.view_id(), Web::Clipboard::PasteMode::PlainTextOnly);
         })));
-        menu.add_action(Action::create("Select All"sv, ActionID::SelectAll, on_view(view_id, [](RemoteView& view) {
+        menu.add_action(Action::create(WebView::ui_text("Select All"sv), ActionID::SelectAll, on_view(view_id, [](RemoteView& view) {
             HubConnection::the().async_view_select_all(view.view_id());
         })));
     }
@@ -215,7 +215,7 @@ static NonnullRefPtr<Menu> create_page_context_menu(RemoteView& view, ContextMen
     if (is_about_page) {
         menu->add_action(view.navigate_back_action());
         menu->add_action(view.navigate_forward_action());
-        menu->add_action(Action::create("Reload"sv, ActionID::Reload, on_view(view_id, [](RemoteView& view) { view.reload(); })));
+        menu->add_action(Action::create(WebView::ui_text("Reload"sv), ActionID::Reload, on_view(view_id, [](RemoteView& view) { view.reload(); })));
     }
     menu->add_separator();
     add_text_edit_actions(*menu, view_id, request.is_editable, request.selected_text.has_value());
@@ -224,7 +224,7 @@ static NonnullRefPtr<Menu> create_page_context_menu(RemoteView& view, ContextMen
     add_copy_link_to_highlight_action(*menu, view, request);
     menu->add_separator();
     if (is_about_page) {
-        auto view_source_action = Action::create("View Page Source"sv, ActionID::ViewSource, [view_id] {
+        auto view_source_action = Action::create(WebView::ui_text("View Page Source"sv), ActionID::ViewSource, [view_id] {
             HubConnection::the().async_view_get_source(view_id);
         });
         view_source_action->set_enabled(view.can_view_source());

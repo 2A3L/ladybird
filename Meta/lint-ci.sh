@@ -47,6 +47,7 @@ for cmd in \
         Meta/Linters/check_style.py \
         Meta/Linters/check_vcpkg.py \
         Meta/Linters/lint_executable_resources.sh \
+        Meta/Linters/lint_localization.py \
         Meta/Linters/lint_prettier.sh \
         Meta/Linters/lint_python.sh \
         Meta/Linters/lint_shell_scripts.sh \

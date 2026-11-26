@@ -63,7 +63,7 @@ void Bookmarks::tab_settings_changed()
 
 void Bookmarks::create_menus()
 {
-    m_menu = Menu::create("Bookmarks"sv);
+    m_menu = Menu::create(WebView::ui_text("Bookmarks"sv));
     m_menu->add_action(Action::create("Manage Bookmarks"sv, ActionID::ManageBookmarks, [] {
         Application::the().activate_or_open_tab_with_url(URL::about_bookmarks());
     }));
