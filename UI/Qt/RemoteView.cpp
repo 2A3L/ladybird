@@ -14,6 +14,7 @@
 #include <LibGfx/ImageFormats/PNGWriter.h>
 #include <LibURL/InternalURLs.h>
 #include <LibUnicode/DisplayNames.h>
+#include <LibUnicode/ListFormat.h>
 #include <LibWebView/ErrorHTML.h>
 #include <LibWebView/ExternalURLHandler.h>
 #include <LibWebView/FaviconStore.h>
@@ -74,14 +75,14 @@ RemoteView::RemoteView(Optional<u64> view_id, Hub::View::InitialState initial_st
     m_navigate_forward_action = Action::create(WebView::ui_text("Forward"sv), ActionID::NavigateForward, [this] {
         traverse_the_history_by_delta(+1);
     });
-    m_toggle_bookmark_action = Action::create("Toggle Bookmark"sv, ActionID::ToggleBookmarkViaToolbar, [] {
+    m_toggle_bookmark_action = Action::create(WebView::ui_text("Toggle Bookmark"sv), ActionID::ToggleBookmarkViaToolbar, [] {
         Application::the().show_bookmark_popover();
     });
     m_reset_zoom_action = Action::create("100%"sv, ActionID::ResetZoomViaToolbar, [this] {
         reset_zoom();
     });
-    m_reset_zoom_action->set_tooltip("Reset zoom level"sv);
-    m_copy_link_to_highlight_action = Action::create("Copy Link to Highlight"sv, ActionID::CopyLinkToHighlight, [this] {
+    m_reset_zoom_action->set_tooltip(WebView::ui_text("Reset zoom level"sv));
+    m_copy_link_to_highlight_action = Action::create(WebView::ui_text("Copy Link to Highlight"sv), ActionID::CopyLinkToHighlight, [this] {
         if (m_link_to_highlight.has_value())
             Application::the().set_clipboard_text(MUST(String::from_byte_string(WebView::url_text_to_copy(*m_link_to_highlight))));
     });
@@ -116,7 +117,7 @@ RemoteView::~RemoteView()
 void RemoteView::update_bookmark_action()
 {
     auto is_bookmarked = Application::bookmark_store().is_bookmarked(url());
-    m_toggle_bookmark_action->set_tooltip(is_bookmarked ? "Remove bookmark"sv : "Bookmark this page"sv);
+    m_toggle_bookmark_action->set_tooltip(WebView::ui_text(is_bookmarked ? "Remove bookmark"sv : "Bookmark this page"sv));
     m_toggle_bookmark_action->set_engaged(is_bookmarked);
     Application::bookmarks().update_toggle_bookmark_action();
 }
@@ -550,22 +551,28 @@ void RemoteView::did_finish_loading(URL::URL const& url)
         Application::history_store().update_favicon(url, *m_favicon_hash);
 }
 
-// The browser's own strings are English, so languages are named in English.
+// Languages are named in the interface language. A language without a name in it is shown by its code.
 static String language_display_name(StringView language)
 {
     auto primary_language = WebView::primary_language_subtag(language);
-    if (auto name = Unicode::language_display_name("en"sv, primary_language, Unicode::LanguageDisplay::Standard); name.has_value())
+    if (auto name = Unicode::language_display_name(WebView::interface_language(), primary_language, Unicode::LanguageDisplay::Standard); name.has_value())
         return name->to_utf8();
     return MUST(String::from_utf8(primary_language));
 }
 
+static String join_language_names(ReadonlySpan<Utf16String> names)
+{
+    auto locale = Utf16String::from_utf8(WebView::interface_language());
+    return Unicode::ListFormat::create(locale.utf16_view(), Unicode::ListFormatType::Conjunction, Unicode::Style::Long)->format(names).to_utf8();
+}
+
 void RemoteView::create_translation_actions()
 {
-    m_translate_action = Action::create("Translate"sv, ActionID::TranslatePage, [] { });
+    m_translate_action = Action::create(WebView::ui_text("Translate"sv), ActionID::TranslatePage, [] { });
 
-    m_translation_menu = Menu::create("Translation"sv);
+    m_translation_menu = Menu::create(WebView::ui_text("Translation"sv));
     for (size_t index = 0; index < WebView::PageTranslation::MAXIMUM_OFFERED_LANGUAGES; ++index) {
-        auto translate_to_action = Action::create_checkable("Translate"sv, ActionID::TranslateTo, [this, index] {
+        auto translate_to_action = Action::create_checkable(WebView::ui_text("Translate"sv), ActionID::TranslateTo, [this, index] {
             if (index < m_state.translation_targets.size() && !m_state.translation_targets[index].needs_download)
                 HubConnection::the().async_view_translate_to(view_id(), m_state.translation_targets[index].language);
             // NB: The check mark shows the language the page is in, which activating an action doesn't change by itself.
@@ -575,7 +582,7 @@ void RemoteView::create_translation_actions()
         m_translation_menu->add_action(translate_to_action);
         m_translate_to_actions.append(move(translate_to_action));
 
-        auto download_languages_action = Action::create("Download"sv, ActionID::DownloadTranslationLanguages, [this, index] {
+        auto download_languages_action = Action::create(WebView::ui_text("Download"sv), ActionID::DownloadTranslationLanguages, [this, index] {
             if (index < m_state.translation_targets.size())
                 HubConnection::the().async_view_download_translation_languages(view_id(), m_state.translation_targets[index].language);
         });
@@ -583,19 +590,19 @@ void RemoteView::create_translation_actions()
         m_translation_menu->add_action(download_languages_action);
         m_download_languages_actions.append(move(download_languages_action));
     }
-    m_show_original_action = Action::create("Show Original"sv, ActionID::ShowOriginal, [this] {
+    m_show_original_action = Action::create(WebView::ui_text("Show Original"sv), ActionID::ShowOriginal, [this] {
         HubConnection::the().async_view_show_original(view_id());
     });
     m_translation_menu->add_action(*m_show_original_action);
     m_translation_menu->add_separator();
-    m_prefer_higher_quality_action = Action::create_checkable("Use Higher-Quality Models"sv, ActionID::PreferHigherQualityTranslation, [this] {
+    m_prefer_higher_quality_action = Action::create_checkable(WebView::ui_text("Use Higher-Quality Models"sv), ActionID::PreferHigherQualityTranslation, [this] {
         HubConnection::the().async_view_prefer_higher_quality_translation(view_id(), !m_state.translation_prefers_higher_quality);
         // NB: The check mark shows the saved choice, which the Hub sends back with the view's state.
         update_view_actions();
     });
     m_prefer_higher_quality_action->set_visible(false);
     m_translation_menu->add_action(*m_prefer_higher_quality_action);
-    m_translation_menu->add_action(Action::create("Preferred Languages…"sv, ActionID::EditPreferredLanguages, [] {
+    m_translation_menu->add_action(Action::create(WebView::ui_text("Preferred Languages…"sv), ActionID::EditPreferredLanguages, [] {
         auto url = URL::about_settings();
         url.set_fragment("editLanguages"sv);
         Application::the().activate_or_open_tab_with_url(url);
@@ -611,11 +618,11 @@ void RemoteView::update_translation_actions()
     m_translate_action->set_engaged(m_state.is_translated);
     m_translate_action->set_busy(downloading);
     if (m_state.is_translated)
-        m_translate_action->set_tooltip("Showing translation"sv);
+        m_translate_action->set_tooltip(WebView::ui_text("Showing translation"sv));
     else if (downloading)
-        m_translate_action->set_tooltip("Downloading a language to translate this page"sv);
+        m_translate_action->set_tooltip(WebView::ui_text("Downloading a language to translate this page"sv));
     else
-        m_translate_action->set_tooltip("Translate this page"sv);
+        m_translate_action->set_tooltip(WebView::ui_text("Translate this page"sv));
 
     auto const& target_language = m_state.translation_target_language;
     for (size_t index = 0; index < m_translate_to_actions.size(); ++index) {
@@ -632,31 +639,36 @@ void RemoteView::update_translation_actions()
         // The item names the languages to download, and the target when it isn't one of them: "Download Dutch to
         // Translate to English…" for a Dutch page, but "Download Italian to Translate…" for an English one.
         String download_names;
-        String download_target;
+        auto names_target = true;
         if (target.languages_to_download.is_empty()) {
-            download_names = "Languages"_string;
-            download_target = MUST(String::formatted(" to {}", name));
+            download_names = WebView::translate(WebView::ui_text_in("download"sv, "Languages"sv));
         } else {
-            Vector<String> names;
+            Vector<Utf16String> language_names;
             for (auto const& language : target.languages_to_download)
-                names.append(language_display_name(language));
-            download_names = MUST(String::join(" and "sv, names));
-            if (!any_of(target.languages_to_download, [&](auto const& language) { return WebView::is_same_language(language, target.language); }))
-                download_target = MUST(String::formatted(" to {}", name));
+                language_names.append(Utf16String::from_utf8(language_display_name(language)));
+            download_names = join_language_names(language_names);
+            names_target = !any_of(target.languages_to_download, [&](auto const& language) { return WebView::is_same_language(language, target.language); });
         }
+        Vector<String> download_arguments { download_names };
+        if (names_target)
+            download_arguments.append(name);
 
-        translate_to_action->set_text(MUST(String::formatted("Translate to {}", name)));
+        translate_to_action->set_text(WebView::ui_text("Translate to {0}"sv, { name }));
         translate_to_action->set_checked(target_language.has_value() && WebView::is_same_language(*target_language, target.language));
         translate_to_action->set_visible(!target.needs_download);
 
+        // NB: Each wording is a whole text, so a language can place the target where it needs it.
+        auto download_text = [&](StringView without_target, StringView with_target) {
+            return WebView::ui_text(names_target ? with_target : without_target, download_arguments);
+        };
         if (target.needs_download && target.downloading)
-            download_languages_action->set_text(MUST(String::formatted("Downloading {} to Translate{}…", download_names, download_target)));
+            download_languages_action->set_text(download_text("Downloading {0} to Translate…"sv, "Downloading {0} to Translate to {1}…"sv));
         else if (target.needs_download)
-            download_languages_action->set_text(MUST(String::formatted("Download {} to Translate{}…", download_names, download_target)));
+            download_languages_action->set_text(download_text("Download {0} to Translate…"sv, "Download {0} to Translate to {1}…"sv));
         else if (target.downloading)
-            download_languages_action->set_text(MUST(String::formatted("Downloading {} for Faster Translation{}…", download_names, download_target)));
+            download_languages_action->set_text(download_text("Downloading {0} for Faster Translation…"sv, "Downloading {0} for Faster Translation to {1}…"sv));
         else
-            download_languages_action->set_text(MUST(String::formatted("Download {} for Faster Translation{}…", download_names, download_target)));
+            download_languages_action->set_text(download_text("Download {0} for Faster Translation…"sv, "Download {0} for Faster Translation to {1}…"sv));
         download_languages_action->set_enabled(!target.downloading);
         download_languages_action->set_visible(target.needs_download || target.faster_after_download);
     }
@@ -666,7 +678,7 @@ void RemoteView::update_translation_actions()
     auto* translator = Application::the().translator();
     auto higher_quality_models_name = translator ? translator->higher_quality_models_name() : Optional<StringView> {};
     if (higher_quality_models_name.has_value())
-        m_prefer_higher_quality_action->set_text(MUST(String::formatted("Use {} (Slower)", *higher_quality_models_name)));
+        m_prefer_higher_quality_action->set_text(WebView::ui_text("Use {0} (Slower)"sv, { MUST(String::from_utf8(*higher_quality_models_name)) }));
     m_prefer_higher_quality_action->set_checked(m_state.translation_prefers_higher_quality);
     m_prefer_higher_quality_action->set_visible(higher_quality_models_name.has_value() && any_of(targets, [](auto const& target) { return target.higher_quality_available; }));
 }
@@ -680,7 +692,7 @@ void RemoteView::update_view_actions()
     m_navigate_back_action->set_enabled(m_state.can_navigate_back);
     m_navigate_forward_action->set_enabled(m_state.can_navigate_forward);
     if (m_state.zoom_level != 1.0) {
-        m_reset_zoom_action->set_text(MUST(String::formatted("{}%", round_to<int>(m_state.zoom_level * 100))));
+        m_reset_zoom_action->set_text(WebView::ui_text("{0}%"sv, { String::number(round_to<int>(m_state.zoom_level * 100)) }));
         m_reset_zoom_action->set_visible(true);
     } else {
         m_reset_zoom_action->set_visible(false);

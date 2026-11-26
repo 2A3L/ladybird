@@ -400,30 +400,31 @@ public:
     {
         auto& application = ApplicationActions::the();
 
-        auto make_action = [&](QString const& text) {
-            auto* action = new QAction(text, m_application_widget);
+        auto make_action = [&](WebView::UIText text) {
+            auto* action = new QAction(m_application_widget);
+            bind_ui_text(*action, move(text), [action](QString const& text) { action->setText(text); });
             action->setShortcutVisibleInContextMenu(true);
             return action;
         };
 
-        m_new_tab_action = make_action("New &Tab");
+        m_new_tab_action = make_action(WebView::ui_text("New &Tab"sv));
         m_new_tab_action->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_T));
         QObject::connect(m_new_tab_action, &QAction::triggered, this, []() { Application::the().open_new_tab(); });
 
-        m_new_window_action = make_action("New &Window");
+        m_new_window_action = make_action(WebView::ui_text("New &Window"sv));
         m_new_window_action->setShortcuts(QKeySequence::keyBindings(QKeySequence::StandardKey::New));
         QObject::connect(m_new_window_action, &QAction::triggered, this, []() { Application::the().open_new_window(WebView::IsPrivate::No); });
 
-        m_new_private_window_action = make_action("New Pri&vate Window");
+        m_new_private_window_action = make_action(WebView::ui_text("New Pri&vate Window"sv));
         m_new_private_window_action->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_N));
         QObject::connect(m_new_private_window_action, &QAction::triggered, this, []() { Application::the().open_new_window(WebView::IsPrivate::Yes); });
 
-        m_reopen_recently_closed_tab_action = make_action("&Reopen Closed Tab");
+        m_reopen_recently_closed_tab_action = make_action(WebView::ui_text("&Reopen Closed Tab"sv));
         m_reopen_recently_closed_tab_action->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_T));
         QObject::connect(m_reopen_recently_closed_tab_action, &QAction::triggered, this, []() { Application::the().reopen_recently_closed_tab(Application::the().active_window_if_any()); });
         update_reopen_recently_closed_action();
 
-        m_close_current_tab_action = make_action("&Close Current Tab");
+        m_close_current_tab_action = make_action(WebView::ui_text("&Close Current Tab"sv));
         auto close_tab_shortcuts = QKeySequence::keyBindings(QKeySequence::StandardKey::Close);
 #if !defined(AK_OS_MACOS)
         QKeySequence control_f4(Qt::CTRL | Qt::Key_F4);
@@ -446,7 +447,7 @@ public:
             tab->request_close();
         });
 
-        m_open_next_tab_action = make_action("Open &Next Tab");
+        m_open_next_tab_action = make_action(WebView::ui_text("Open &Next Tab"sv));
         m_open_next_tab_action->setShortcuts({
             QKeySequence(Qt::CTRL | Qt::Key_PageDown),
             QKeySequence(Qt::CTRL | Qt::Key_Tab),
@@ -461,7 +462,7 @@ public:
                 window->open_next_tab();
         });
 
-        m_open_previous_tab_action = make_action("Open &Previous Tab");
+        m_open_previous_tab_action = make_action(WebView::ui_text("Open &Previous Tab"sv));
         m_open_previous_tab_action->setShortcuts({
             QKeySequence(Qt::CTRL | Qt::Key_PageUp),
             QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_Tab),
@@ -476,25 +477,25 @@ public:
                 window->open_previous_tab();
         });
 
-        m_search_tabs_action = make_action("&Search Tabs…");
+        m_search_tabs_action = make_action(WebView::ui_text("&Search Tabs…"sv));
         m_search_tabs_action->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_A));
         QObject::connect(m_search_tabs_action, &QAction::triggered, this, []() {
             if (auto* window = Application::the().active_window_if_any())
                 window->show_all_tabs();
         });
 
-        m_move_focus_action = make_action("Move &Focus Between Toolbar and Page");
+        m_move_focus_action = make_action(WebView::ui_text("Move &Focus Between Toolbar and Page"sv));
         m_move_focus_action->setShortcut(QKeySequence(Qt::Key_F6));
         QObject::connect(m_move_focus_action, &QAction::triggered, this, []() {
             if (auto* window = Application::the().active_window_if_any())
                 window->move_focus_between_chrome_and_page();
         });
 
-        m_open_file_action = make_action("&Open File…");
+        m_open_file_action = make_action(WebView::ui_text("&Open File…"sv));
         m_open_file_action->setShortcut(QKeySequence(QKeySequence::StandardKey::Open));
         QObject::connect(m_open_file_action, &QAction::triggered, this, []() { Application::the().open_file(); });
 
-        m_open_location_action = make_action("Open &Location…");
+        m_open_location_action = make_action(WebView::ui_text("Open &Location…"sv));
         m_open_location_action->setShortcuts({ QKeySequence(Qt::CTRL | Qt::Key_L), QKeySequence(Qt::ALT | Qt::Key_D) });
         QObject::connect(m_open_location_action, &QAction::triggered, this, []() {
             if (auto* tab = Application::the().active_tab())
@@ -502,6 +503,7 @@ public:
         });
 
         m_open_settings_action = create_application_action(*m_application_widget, application.open_settings_page_action(), IncludeActionIcon::No);
+        m_open_settings_action->setMenuRole(QAction::PreferencesRole);
         m_open_downloads_action = create_application_action(*m_application_widget, application.open_downloads_page_action(), IncludeActionIcon::No);
 
         m_toggle_bookmark_bar_action = create_application_action(*m_application_widget, Application::bookmarks().toggle_bookmark_bar_action(), IncludeActionIcon::No);
@@ -514,7 +516,7 @@ public:
 
         // NB: Esc only labels the item. The page view stops a load on Esc itself, after the node picker has had its
         //     chance at the key, so it isn't a window-wide shortcut that would take Esc from every widget.
-        m_stop_action = make_action("&Stop");
+        m_stop_action = make_action(WebView::ui_text("&Stop"sv));
         m_stop_action->setShortcut(QKeySequence(Qt::Key_Escape));
         m_stop_action->setShortcutContext(Qt::WidgetShortcut);
         QObject::connect(m_stop_action, &QAction::triggered, this, []() {
@@ -522,21 +524,21 @@ public:
                 tab->view().stop_loading();
         });
 
-        m_find_in_page_action = make_action("&Find in Page…");
+        m_find_in_page_action = make_action(WebView::ui_text("&Find in Page…"sv));
         m_find_in_page_action->setShortcuts(QKeySequence::keyBindings(QKeySequence::StandardKey::Find));
         QObject::connect(m_find_in_page_action, &QAction::triggered, this, []() {
             if (auto* window = Application::the().active_window_if_any())
                 window->show_find_in_page();
         });
 
-        m_find_next_action = make_action("Find &Next");
+        m_find_next_action = make_action(WebView::ui_text("Find &Next"sv));
         m_find_next_action->setShortcuts(QKeySequence::keyBindings(QKeySequence::StandardKey::FindNext));
         QObject::connect(m_find_next_action, &QAction::triggered, this, []() {
             if (auto* tab = Application::the().active_tab())
                 tab->find_next();
         });
 
-        m_find_previous_action = make_action("Find Pre&vious");
+        m_find_previous_action = make_action(WebView::ui_text("Find Pre&vious"sv));
         m_find_previous_action->setShortcuts(QKeySequence::keyBindings(QKeySequence::StandardKey::FindPrevious));
         QObject::connect(m_find_previous_action, &QAction::triggered, this, []() {
             if (auto* tab = Application::the().active_tab())
@@ -547,7 +549,9 @@ public:
         m_zoom_out_action = create_application_action(*m_application_widget, application.zoom_out_action(), IncludeActionIcon::No);
         m_reset_zoom_action = create_application_action(*m_application_widget, application.reset_zoom_action(), IncludeActionIcon::No);
 
-        m_quit_action = make_action("&Quit");
+        m_quit_action = make_action(WebView::ui_text("&Quit"sv));
+        // NB: On macOS, Qt finds the items of the application menu by their English text unless they say what they are.
+        m_quit_action->setMenuRole(QAction::QuitRole);
         m_quit_action->setShortcuts(QKeySequence::keyBindings(QKeySequence::StandardKey::Quit));
         QObject::connect(m_quit_action, &QAction::triggered, this, []() { Application::the().quit(); });
 
@@ -567,10 +571,12 @@ public:
         bind_menu_title(*m_help_menu, "Help"sv);
         m_help_menu->addAction(create_application_action(*m_application_widget, application.report_website_issue_action(), IncludeActionIcon::No));
         m_help_menu->addSeparator();
-        m_help_menu->addAction(create_application_action(*m_application_widget, application.open_about_page_action(), IncludeActionIcon::No));
+        auto* about_action = create_application_action(*m_application_widget, application.open_about_page_action(), IncludeActionIcon::No);
+        about_action->setMenuRole(QAction::AboutRole);
+        m_help_menu->addAction(about_action);
 
 #if defined(LADYBIRD_HAS_UPDATE_CHECK)
-        auto* check_for_updates_action = make_action("Check for Updates…");
+        auto* check_for_updates_action = make_action(WebView::ui_text("Check for Updates…"sv));
         // NB: On macOS, this moves the item into the application menu, below About Ladybird.
         check_for_updates_action->setMenuRole(QAction::ApplicationSpecificRole);
         QObject::connect(check_for_updates_action, &QAction::triggered, this, [] {
@@ -583,14 +589,14 @@ public:
         m_debug_menu->addSeparator();
 #endif
 #if defined(LADYBIRD_HAS_UPDATE_CHECK)
-        auto* simulate_update_action = make_action("Simulate Available Update");
+        auto* simulate_update_action = make_action(WebView::ui_text("Simulate Available Update"sv));
         QObject::connect(simulate_update_action, &QAction::triggered, this, [] {
             HubConnection::the().async_check_for_updates(WebView::UpdateCheckTrigger::Debug);
         });
         m_debug_menu->addAction(simulate_update_action);
 #endif
 #if defined(AK_OS_LINUX)
-        auto* simulate_replaced_installation_action = make_action("Simulate Replaced Installation");
+        auto* simulate_replaced_installation_action = make_action(WebView::ui_text("Simulate Replaced Installation"sv));
         QObject::connect(simulate_replaced_installation_action, &QAction::triggered, this, [] {
             Application::the().offer_restart_after_update();
         });
@@ -612,12 +618,14 @@ public:
         // NB: AppKit lists the application's windows in the dock menu by itself.
         m_dock_menu = new QMenu(m_menu_bar);
 
-        auto* new_window_action = m_dock_menu->addAction("New Window");
+        auto* new_window_action = m_dock_menu->addAction(QString {});
+        bind_ui_text(*new_window_action, WebView::ui_text("New Window"sv), [new_window_action](QString const& text) { new_window_action->setText(text); });
         QObject::connect(new_window_action, &QAction::triggered, m_dock_menu, [] {
             Application::the().open_new_window(WebView::IsPrivate::No);
         });
 
-        auto* new_private_window_action = m_dock_menu->addAction("New Private Window");
+        auto* new_private_window_action = m_dock_menu->addAction(QString {});
+        bind_ui_text(*new_private_window_action, WebView::ui_text("New Private Window"sv), [new_private_window_action](QString const& text) { new_private_window_action->setText(text); });
         QObject::connect(new_private_window_action, &QAction::triggered, m_dock_menu, [] {
             Application::the().open_new_window(WebView::IsPrivate::Yes);
         });
@@ -631,7 +639,6 @@ public:
         if (!m_reopen_recently_closed_tab_action)
             return;
 
-        m_reopen_recently_closed_tab_action->setText("&Reopen Closed Tab");
         auto* active_window = Application::the().active_window_if_any();
         auto& session = active_window ? active_window->session() : Application::session_store(WebView::IsPrivate::No);
         m_reopen_recently_closed_tab_action->setEnabled(session.has_closed_units());
@@ -821,10 +828,13 @@ Hub::UIInfo Application::current_ui_info() const
 {
     QMessageBox dialog;
     dialog.setIcon(QMessageBox::Warning);
-    dialog.setText(QObject::tr("Ladybird is already running, but it is not responding."));
-    dialog.setInformativeText(QObject::tr("To open Ladybird with this profile, the Ladybird that is running must be closed first. What its pages have not saved will be lost."));
-    auto* close_button = dialog.addButton(QObject::tr("Close Ladybird"), QMessageBox::DestructiveRole);
-    dialog.setDefaultButton(dialog.addButton(QMessageBox::Cancel));
+    dialog.setText(translate_to_qstring(WebView::ui_text("Ladybird is already running, but it is not responding."sv)));
+    dialog.setInformativeText(translate_to_qstring(WebView::ui_text("To open Ladybird with this profile, the Ladybird that is running must be closed first. What its pages have not saved will be lost."sv)));
+    auto* close_button = dialog.addButton(translate_to_qstring(WebView::ui_text("Close Ladybird"sv)), QMessageBox::DestructiveRole);
+    auto* cancel_button = dialog.addButton(QMessageBox::Cancel);
+    // NB: Qt names its standard buttons in the language of the system, not in ours.
+    cancel_button->setText(translate_to_qstring(WebView::ui_text("Cancel"sv)));
+    dialog.setDefaultButton(cancel_button);
     // NB: Nothing else of this launch is on the screen yet, so the question has to be where the user sees it.
     dialog.setWindowFlag(Qt::WindowStaysOnTopHint);
     QTimer::singleShot(0, &dialog, [&dialog] {
@@ -1344,7 +1354,7 @@ void Application::create_platform_actions()
         return make<VersionPage>(web_ui_id);
     });
 
-    m_open_task_manager_action = Action::create("Open Task Manager"sv, ActionID::OpenTaskManager, [this]() {
+    m_open_task_manager_action = Action::create(WebView::ui_text("Open Task Manager"sv), ActionID::OpenTaskManager, [this]() {
         show_process_manager();
     });
     m_application_actions->inspect_menu().add_action(*m_open_task_manager_action);
@@ -1792,11 +1802,11 @@ void Application::offer_to_restore_unexpectedly_closed_tabs(BrowserWindow& windo
         if (new_tab_page && window->tab_count() > 1)
             window->close_tab_without_keeping_it(window->tab_index(new_tab_page));
     };
-    auto question = tab_count == 1 ? QStringLiteral("Restore the tab you had open?") : qformatted("Restore the {} tabs you had open?", tab_count);
+    auto question = translate_to_qstring(tab_count == 1 ? WebView::ui_text("Restore the tab you had open?"sv) : WebView::ui_text("Restore the {0} tabs you had open?"sv, { String::number(tab_count) }));
     Vector<PageCard::Button> buttons;
-    buttons.append({ "Not now", PageCard::ButtonRole::Secondary, {} });
-    buttons.append({ "Restore tabs", PageCard::ButtonRole::Primary, AK::move(restore_tabs) });
-    window.show_page_card(BrowserWindow::PageCardSlot::RestoreSession, "Ladybird quit unexpectedly", question, AK::move(buttons));
+    buttons.append({ translate_to_qstring(WebView::ui_text("Not now"sv)), PageCard::ButtonRole::Secondary, {} });
+    buttons.append({ translate_to_qstring(WebView::ui_text("Restore tabs"sv)), PageCard::ButtonRole::Primary, AK::move(restore_tabs) });
+    window.show_page_card(BrowserWindow::PageCardSlot::RestoreSession, translate_to_qstring(WebView::ui_text("Ladybird quit unexpectedly"sv)), question, AK::move(buttons));
 }
 
 void Application::open_startup_tabs(BrowserWindow& window, Vector<URL::URL> const& urls)
@@ -2186,10 +2196,10 @@ bool Application::confirm_stop_active_downloads(QWidget* parent)
         QMessageBox dialog(parent ? parent : active_window_if_any());
         dialog.setWindowTitle("Ladybird");
         dialog.setIcon(QMessageBox::Warning);
-        dialog.setText("Downloads are still in progress.");
-        dialog.setInformativeText("Quitting will cancel downloads that cannot be resumed.");
-        auto* quit_button = dialog.addButton("Quit and Cancel Downloads", QMessageBox::DestructiveRole);
-        dialog.addButton(QMessageBox::Cancel);
+        dialog.setText(translate_to_qstring(WebView::ui_text("Downloads are still in progress."sv)));
+        dialog.setInformativeText(translate_to_qstring(WebView::ui_text("Quitting will cancel downloads that cannot be resumed."sv)));
+        auto* quit_button = dialog.addButton(translate_to_qstring(WebView::ui_text("Quit and Cancel Downloads"sv)), QMessageBox::DestructiveRole);
+        dialog.addButton(QMessageBox::Cancel)->setText(translate_to_qstring(WebView::ui_text("Cancel"sv)));
         dialog.setDefaultButton(QMessageBox::Cancel);
         dialog.exec();
 
@@ -2509,26 +2519,26 @@ void Application::ask_user_for_download_path(u64 request_id, ByteString const& f
     dialog->open();
 }
 
-static QMessageBox* create_message_box(QMessageBox::Icon icon, StringView text, QWidget* parent)
+static QMessageBox* create_message_box(QMessageBox::Icon icon, QString const& text, QWidget* parent)
 {
     auto* dialog = new QMessageBox(parent);
     dialog->setAttribute(Qt::WA_DeleteOnClose);
     dialog->setWindowTitle("Ladybird");
     dialog->setIcon(icon);
     dialog->setTextFormat(Qt::PlainText);
-    dialog->setText(qstring_from_ak_string(text));
+    dialog->setText(text);
     dialog->addButton(QMessageBox::Ok);
     return dialog;
 }
 
 void Application::display_download_confirmation_dialog(StringView download_name, ByteString const& path) const
 {
-    auto message = MUST(String::formatted("{} saved to: {}", download_name, path));
+    auto message = translate_to_qstring(WebView::ui_text("{0} saved to: {1}"sv, { MUST(String::from_utf8(download_name)), MUST(String::from_byte_string(path)) }));
 
     auto* dialog = create_message_box(QMessageBox::Information, message, active_window_if_any());
 
     auto* open_folder_button = dialog->addButton(QMessageBox::Open);
-    open_folder_button->setText("Open folder");
+    open_folder_button->setText(translate_to_qstring(WebView::ui_text("Open folder"sv)));
     QObject::connect(open_folder_button, &QAbstractButton::clicked, [path_url = QUrl::fromLocalFile(qstring_from_ak_string(LexicalPath { path }.dirname()))] {
         QDesktopServices::openUrl(path_url);
     });
@@ -2538,7 +2548,7 @@ void Application::display_download_confirmation_dialog(StringView download_name,
 
 void Application::display_error_dialog(StringView error_message) const
 {
-    create_message_box(QMessageBox::Warning, error_message, active_window_if_any())->open();
+    create_message_box(QMessageBox::Warning, qstring_from_ak_string(error_message), active_window_if_any())->open();
 }
 
 // A system curl that has moved on to another OpenSSL than the one Ladybird was built against. RequestServer then leaves
@@ -2556,10 +2566,10 @@ void Application::show_openssl_mismatch_card(BrowserWindow& window)
     auto mismatch = m_openssl_mismatch_awaiting_window.release_value();
 
     Vector<PageCard::Button> buttons;
-    buttons.append({ "Dismiss", PageCard::ButtonRole::Primary, {} });
-    auto text = qformatted("Ladybird was built against OpenSSL {}, but your system's curl uses OpenSSL {}. Secure connections work without some of Ladybird's own checks until Ladybird is rebuilt.",
-        mismatch.linked_openssl_version, mismatch.curl_openssl_version);
-    window.show_page_card(BrowserWindow::PageCardSlot::RebuildNeeded, "This build of Ladybird is out of date", text, move(buttons));
+    buttons.append({ translate_to_qstring(WebView::ui_text("Dismiss"sv)), PageCard::ButtonRole::Primary, {} });
+    auto text = translate_to_qstring(WebView::ui_text("Ladybird was built against OpenSSL {0}, but your system's curl uses OpenSSL {1}. Secure connections work without some of Ladybird's own checks until Ladybird is rebuilt."sv,
+        { mismatch.linked_openssl_version, mismatch.curl_openssl_version }));
+    window.show_page_card(BrowserWindow::PageCardSlot::RebuildNeeded, translate_to_qstring(WebView::ui_text("This build of Ladybird is out of date"sv)), text, move(buttons));
 }
 
 #if defined(LADYBIRD_HAS_UPDATE_CHECK)
@@ -2569,13 +2579,13 @@ void Application::display_update_check_result(WebView::UpdateCheckResult::Kind k
 
     switch (kind) {
     case WebView::UpdateCheckResult::Kind::UpToDate:
-        create_message_box(QMessageBox::Information, MUST(String::formatted("Ladybird {} is the newest version.", current_version)), active_window_if_any())->open();
+        create_message_box(QMessageBox::Information, translate_to_qstring(WebView::ui_text("Ladybird {0} is the newest version."sv, { MUST(String::from_utf8(current_version)) })), active_window_if_any())->open();
         return;
     case WebView::UpdateCheckResult::Kind::DevelopmentBuild:
-        create_message_box(QMessageBox::Information, "Development builds of Ladybird do not check for updates."sv, active_window_if_any())->open();
+        create_message_box(QMessageBox::Information, translate_to_qstring(WebView::ui_text("Development builds of Ladybird do not check for updates."sv)), active_window_if_any())->open();
         return;
     case WebView::UpdateCheckResult::Kind::Failed:
-        display_error_dialog("Ladybird could not check for updates. Check your internet connection, and try again."sv);
+        create_message_box(QMessageBox::Warning, translate_to_qstring(WebView::ui_text("Ladybird could not check for updates. Check your internet connection, and try again."sv)), active_window_if_any())->open();
         return;
     case WebView::UpdateCheckResult::Kind::UpdateAvailable:
         break;
@@ -2601,19 +2611,20 @@ void Application::display_update_check_result(WebView::UpdateCheckResult::Kind k
 
     Vector<PageCard::Button> buttons;
     // A version skipped for the debug action would also be skipped when it is offered for real.
-    buttons.append({ "Skip", PageCard::ButtonRole::Secondary, [version = *version, trigger] {
+    buttons.append({ translate_to_qstring(WebView::ui_text("Skip"sv)), PageCard::ButtonRole::Secondary, [version = *version, trigger] {
                         if (trigger != WebView::UpdateCheckTrigger::Debug)
                             HubConnection::the().async_skip_update_version(version);
                     } });
 
-    auto text = qformatted("You have Ladybird {}.", current_version);
+    auto current_version_text = MUST(String::from_utf8(current_version));
+    auto text = translate_to_qstring(WebView::ui_text("You have Ladybird {0}."sv, { current_version_text }));
     if (first_is_one_of(install_method, WebView::InstallMethod::DEB, WebView::InstallMethod::RPM, WebView::InstallMethod::Flatpak)) {
-        text = qformatted("You have Ladybird {}. Update it with your system's software updater.", current_version);
-        buttons.append({ "Remind me later", PageCard::ButtonRole::Primary, {} });
+        text = translate_to_qstring(WebView::ui_text("You have Ladybird {0}. Update it with your system's software updater."sv, { current_version_text }));
+        buttons.append({ translate_to_qstring(WebView::ui_text("Remind me later"sv)), PageCard::ButtonRole::Primary, {} });
 #    if defined(LADYBIRD_HAS_SPARKLE)
     } else if (install_method == WebView::InstallMethod::MacOSApp) {
-        buttons.append({ "Remind me later", PageCard::ButtonRole::Secondary, {} });
-        buttons.append({ "Install update", PageCard::ButtonRole::Primary, [trigger] {
+        buttons.append({ translate_to_qstring(WebView::ui_text("Remind me later"sv)), PageCard::ButtonRole::Secondary, {} });
+        buttons.append({ translate_to_qstring(WebView::ui_text("Install update"sv)), PageCard::ButtonRole::Primary, [trigger] {
                             auto* software_updater = Application::the().software_updater();
                             if (!software_updater)
                                 return;
@@ -2624,14 +2635,14 @@ void Application::display_update_check_result(WebView::UpdateCheckResult::Kind k
                         } });
 #    endif
     } else {
-        buttons.append({ "Remind me later", PageCard::ButtonRole::Secondary, {} });
-        buttons.append({ "View release", PageCard::ButtonRole::Primary, [url = WebView::release_page_url(*version)] {
+        buttons.append({ translate_to_qstring(WebView::ui_text("Remind me later"sv)), PageCard::ButtonRole::Secondary, {} });
+        buttons.append({ translate_to_qstring(WebView::ui_text("View release"sv)), PageCard::ButtonRole::Primary, [url = WebView::release_page_url(*version)] {
                             if (auto release_page = URL::Parser::basic_parse(url); release_page.has_value())
                                 Application::the().open_url_in_new_tab(*release_page, Web::HTML::ActivateTab::Yes, {}, WebView::IsPrivate::No);
                         } });
     }
 
-    window->show_page_card(BrowserWindow::PageCardSlot::Update, qformatted("Ladybird {} is available", *version), text, move(buttons));
+    window->show_page_card(BrowserWindow::PageCardSlot::Update, translate_to_qstring(WebView::ui_text("Ladybird {0} is available"sv, { *version })), text, move(buttons));
 }
 #endif
 
@@ -2679,13 +2690,13 @@ void Application::offer_restart_after_update()
         return;
 
     Vector<PageCard::Button> buttons;
-    buttons.append({ "Not now", PageCard::ButtonRole::Secondary, {} });
-    buttons.append({ "Restart", PageCard::ButtonRole::Primary, [] { Application::the().restart(); } });
+    buttons.append({ translate_to_qstring(WebView::ui_text("Not now"sv)), PageCard::ButtonRole::Secondary, {} });
+    buttons.append({ translate_to_qstring(WebView::ui_text("Restart"sv)), PageCard::ButtonRole::Primary, [] { Application::the().restart(); } });
     // A temporary profile is gone once Ladybird quits, and its windows and tabs with it. A session that could not be
     // saved, as when its database would not open, is gone as well.
     auto reopens = !m_profile_is_temporary && m_session_store && m_session_store->is_persistent();
-    auto text = reopens ? "Restart Ladybird to use the new version. Your windows and tabs will reopen, except private ones."_string : "Restart Ladybird to use the new version."_string;
-    window->show_page_card(BrowserWindow::PageCardSlot::Update, "Ladybird was updated", qstring_from_ak_string(text), move(buttons));
+    auto text = translate_to_qstring(reopens ? WebView::ui_text("Restart Ladybird to use the new version. Your windows and tabs will reopen, except private ones."sv) : WebView::ui_text("Restart Ladybird to use the new version."sv));
+    window->show_page_card(BrowserWindow::PageCardSlot::Update, translate_to_qstring(WebView::ui_text("Ladybird was updated"sv)), text, move(buttons));
 }
 
 void Application::restart()
@@ -3197,7 +3208,8 @@ QMenuBar* Application::create_application_menu_bar(ForBrowserWindow for_browser_
         view_menu->addAction(move_focus_action());
         view_menu->addSeparator();
 
-        auto* zoom_menu = view_menu->addMenu("&Zoom");
+        auto* zoom_menu = view_menu->addMenu(QString {});
+        bind_menu_title(*zoom_menu, "&Zoom"sv);
         zoom_menu->addAction(zoom_in_action());
         zoom_menu->addAction(zoom_out_action());
         zoom_menu->addAction(reset_zoom_action());
