@@ -347,7 +347,7 @@ public:
     virtual Web::PageId id() const override { return Web::PageId { 0 }; }
     virtual Web::Page& page() override { return *m_page; }
     virtual Web::Page const& page() const override { return *m_page; }
-    virtual bool is_connection_open() const override { return false; }
+    virtual bool is_connection_open() const override { return use_cache_storage_test_connection; }
     virtual Gfx::Palette palette() const override { return Gfx::Palette(*m_palette_impl); }
     virtual Web::DevicePixelRect screen_rect() const override { return {}; }
     virtual double zoom_level() const override { return 1.0; }
@@ -363,6 +363,11 @@ public:
     virtual void request_file(Web::FileRequest) override { VERIFY_NOT_REACHED(); }
     virtual bool is_headless() const override { return true; }
 
+    bool use_cache_storage_test_connection { false };
+    bool fail_cache_storage_test_send { false };
+    Vector<Web::ServiceWorker::CacheStorageIPC::RequestId> cache_storage_request_ids;
+    Vector<Web::ServiceWorker::CacheStorageIPC::CacheId> released_cache_ids;
+
 private:
     AgentPageClient()
         : m_page(Web::Page::create(*this))
@@ -375,6 +380,16 @@ private:
     {
         Base::visit_edges(visitor);
         visitor.visit(m_page);
+    }
+
+    virtual ErrorOr<void> send_cache_storage_request(Web::HTML::EnvironmentId const&, Web::ServiceWorker::CacheStorageIPC::RequestId request_id, Web::ServiceWorker::CacheStorageIPC::Request&& request) override
+    {
+        if (fail_cache_storage_test_send)
+            return Error::from_string_literal("Cache Storage transport closed during send");
+        cache_storage_request_ids.append(request_id);
+        if (auto* release = request.get_pointer<Web::ServiceWorker::CacheStorageIPC::Release>())
+            released_cache_ids.append(release->id);
+        return {};
     }
 
     GC::Ref<Web::Page> m_page;
@@ -592,6 +607,151 @@ TEST_CASE(an_agent_runs_on_a_thread_of_its_own)
     set_up_process();
     run_on_agent_threads(1, [](size_t) { run_agent(); });
     EXPECT_EQ(s_failures.load(), 0u);
+}
+
+TEST_CASE(cache_storage_bridge_queues_reads_until_reply_capacity_returns)
+{
+    using namespace Web::ServiceWorker::CacheStorageIPC;
+    set_up_process();
+    run_on_agent_threads(1, [](size_t) {
+        Core::EventLoop event_loop;
+        TestAgent agent;
+        auto client = AgentPageClient::create();
+        client->use_cache_storage_test_connection = true;
+
+        auto environment = Web::HTML::EnvironmentId::generate();
+        static thread_local size_t completions = 0;
+        completions = 0;
+        auto callback = GC::create_function(GC::Heap::the(), [](Reply reply) {
+            auto* loaded = reply.get_pointer<Loaded>();
+            VERIFY(loaded);
+            EXPECT_EQ(loaded->snapshot.bytes.size(), 1u);
+            ++completions;
+        });
+
+        for (u64 id = 1; id <= 3; ++id)
+            EXPECT(!client->request_cache_storage(environment, Read { CacheId { id } }, callback).has_value());
+        VERIFY(client->cache_storage_request_ids.size() == 2);
+
+        for (size_t index = 0; index < 3; ++index) {
+            VERIFY(index < client->cache_storage_request_ids.size());
+            client->did_receive_cache_storage_reply(client->cache_storage_request_ids[index], Loaded { Revision { 1 }, { MUST(ByteBuffer::copy("x"sv.bytes())) } });
+        }
+        EXPECT_EQ(completions, 3u);
+        EXPECT_EQ(client->cache_storage_request_ids.size(), 3u);
+        client->clear_cache_storage_requests();
+        agent.close_and_shut_down();
+    });
+}
+
+TEST_CASE(cache_storage_bridge_bounds_requests_and_releases_late_leases)
+{
+    using namespace Web::ServiceWorker::CacheStorageIPC;
+    set_up_process();
+    run_on_agent_threads(1, [](size_t) {
+        Core::EventLoop event_loop;
+        TestAgent agent;
+        auto client = AgentPageClient::create();
+        client->use_cache_storage_test_connection = true;
+
+        auto environment = Web::HTML::EnvironmentId::generate();
+        auto other_environment = Web::HTML::EnvironmentId::generate();
+        static thread_local size_t completions = 0;
+        static thread_local size_t cancellations = 0;
+        completions = 0;
+        cancellations = 0;
+        auto callback = GC::create_function(GC::Heap::the(), [](Reply reply) {
+            auto* error = reply.get_pointer<StorageError>();
+            VERIFY(error);
+            if (*error == StorageError::Unavailable)
+                ++cancellations;
+            ++completions;
+        });
+
+        EXPECT(!client->request_cache_storage(environment, Read { CacheId { 1 } }, callback).has_value());
+        EXPECT(!client->request_cache_storage(environment, Read { CacheId { 1 } }, callback).has_value());
+        for (size_t index = 0; index < 62; ++index)
+            EXPECT(!client->request_cache_storage(other_environment, Read { CacheId { 1 } }, callback).has_value());
+        EXPECT(client->request_cache_storage(other_environment, Read { CacheId { 1 } }, callback) == StorageError::Unavailable);
+        VERIFY(client->cache_storage_request_ids.size() == 2);
+
+        client->cancel_cache_storage_requests(other_environment);
+        EXPECT_EQ(completions, 0u);
+        while (completions == 0 && event_loop.pump(Core::EventLoop::WaitMode::PollForEvents) != 0) { }
+        EXPECT_EQ(cancellations, 62u);
+        EXPECT_EQ(completions, 62u);
+
+        auto request_id = client->cache_storage_request_ids.first();
+        client->did_receive_cache_storage_reply(request_id, StorageError::Missing);
+        client->did_receive_cache_storage_reply(request_id, StorageError::Missing);
+        EXPECT_EQ(completions, 63u);
+        VERIFY(client->cache_storage_request_ids.size() == 2);
+
+        auto oversize_name = Utf16String::repeated('a', maximum_name_length + 1);
+        EXPECT(client->request_cache_storage(environment, Open { { move(oversize_name) } }, callback) == StorageError::QuotaExceeded);
+        EXPECT(!client->request_cache_storage(environment, Open {}, callback).has_value());
+        EXPECT(!client->request_cache_storage(environment, Enumerate {}, callback).has_value());
+        VERIFY(client->cache_storage_request_ids.size() == 4);
+
+        client->cancel_cache_storage_requests(environment);
+        client->cancel_cache_storage_requests(environment);
+        client->did_receive_cache_storage_reply(client->cache_storage_request_ids[2], Opened { CacheId { 2 } });
+        client->did_receive_cache_storage_reply(client->cache_storage_request_ids[3], CacheIds { { CacheId { 3 }, CacheId { 4 } } });
+        Vector expected_released_ids { CacheId { 2 }, CacheId { 3 }, CacheId { 4 } };
+        EXPECT(client->released_cache_ids == expected_released_ids);
+        EXPECT_EQ(completions, 63u);
+
+        client->clear_cache_storage_requests();
+        client->did_receive_cache_storage_reply(client->cache_storage_request_ids[1], StorageError::Unavailable);
+        while (completions == 63 && event_loop.pump(Core::EventLoop::WaitMode::PollForEvents) != 0) { }
+        EXPECT_EQ(cancellations, 65u);
+        EXPECT_EQ(completions, 66u);
+
+        client->fail_cache_storage_test_send = true;
+        EXPECT(client->request_cache_storage(environment, Read { CacheId { 1 } }, callback) == StorageError::Unavailable);
+        client->fail_cache_storage_test_send = false;
+        EXPECT(!client->request_cache_storage(environment, Read { CacheId { 1 } }, callback).has_value());
+        EXPECT(!client->request_cache_storage(environment, Read { CacheId { 1 } }, callback).has_value());
+        client->clear_cache_storage_requests();
+        agent.close_and_shut_down();
+    });
+}
+
+TEST_CASE(cache_storage_bridge_cancels_body_preparation_on_owner_teardown)
+{
+    set_up_process();
+    run_on_agent_threads(1, [](size_t) {
+        Core::EventLoop event_loop;
+        TestAgent agent;
+        auto client = AgentPageClient::create();
+        client->use_cache_storage_test_connection = true;
+
+        auto environment = Web::HTML::EnvironmentId::generate();
+        auto other_environment = Web::HTML::EnvironmentId::generate();
+        static thread_local size_t cancellations = 0;
+        cancellations = 0;
+        auto cancel = GC::create_function(GC::Heap::the(), [] {
+            ++cancellations;
+        });
+
+        auto completed = MUST(client->register_cache_storage_preparation(environment, cancel));
+        client->unregister_cache_storage_preparation(completed);
+        for (size_t index = 0; index < 63; ++index)
+            MUST(client->register_cache_storage_preparation(environment, cancel));
+        MUST(client->register_cache_storage_preparation(other_environment, cancel));
+        EXPECT(client->register_cache_storage_preparation(environment, cancel).is_error());
+
+        client->cancel_cache_storage_requests(environment);
+        client->cancel_cache_storage_requests(environment);
+        EXPECT_EQ(cancellations, 63u);
+        EXPECT(client->cache_storage_request_ids.is_empty());
+
+        MUST(client->register_cache_storage_preparation(other_environment, cancel));
+        client->clear_cache_storage_requests();
+        client->clear_cache_storage_requests();
+        EXPECT_EQ(cancellations, 65u);
+        agent.close_and_shut_down();
+    });
 }
 
 TEST_CASE(several_agents_run_at_once)
