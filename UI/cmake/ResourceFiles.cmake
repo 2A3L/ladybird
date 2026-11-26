@@ -32,6 +32,7 @@ set(ABOUT_PAGES
     crashes.html
     downloads.html
     history.html
+    l10n.js
     licenses.html
     newtab.html
     settings.html
