@@ -28,6 +28,7 @@
 #include <UI/Qt/Icon.h>
 #include <UI/Qt/JavaScriptDialog.h>
 #include <UI/Qt/LadybirdButton.h>
+#include <UI/Qt/Localization.h>
 #if defined(AK_OS_MACOS)
 #    include <UI/Qt/MacWindow.h>
 #endif
@@ -112,7 +113,7 @@ public:
     ZoomPopover(QWidget* parent, QAction& zoom_level)
         : Popover(parent)
     {
-        setAccessibleName("Page zoom");
+        bind_ui_text(*this, WebView::ui_text("Page zoom"sv), [this](QString const& name) { setAccessibleName(name); });
         card().setObjectName("LadybirdZoomPopover");
         card().setFixedWidth(148);
 
@@ -122,20 +123,22 @@ public:
 
         auto* controls = new QHBoxLayout;
         controls->setSpacing(6);
-        auto make_button = [&](ChromeIcon icon, QString const& name, auto callback) {
+        auto make_button = [&](ChromeIcon icon, WebView::UIText name, auto callback) {
             auto* button = new QPushButton(&card());
             button->setObjectName("LadybirdZoomButton");
             button->setIcon(create_chrome_icon(icon, Theme::panel().body));
             button->setIconSize({ 16, 16 });
             button->setFixedSize(26, 24);
-            button->setAccessibleName(name);
-            button->setToolTip(name);
+            bind_ui_text(*button, AK::move(name), [button](QString const& name) {
+                button->setAccessibleName(name);
+                button->setToolTip(name);
+            });
             QObject::connect(button, &QPushButton::clicked, this, [this, callback] {
                 callback(*this);
             });
             return button;
         };
-        controls->addWidget(make_button(ChromeIcon::ZoomOut, "Zoom out", [](ZoomPopover& popover) { if (popover.on_zoom_out) popover.on_zoom_out(); }));
+        controls->addWidget(make_button(ChromeIcon::ZoomOut, WebView::ui_text("Zoom out"sv), [](ZoomPopover& popover) { if (popover.on_zoom_out) popover.on_zoom_out(); }));
 
         auto* level = new QLabel(&card());
         level->setObjectName("LadybirdZoomLevel");
@@ -147,12 +150,13 @@ public:
         QObject::connect(&zoom_level, &QAction::changed, level, update_level);
         update_level();
 
-        controls->addWidget(make_button(ChromeIcon::NewTab, "Zoom in", [](ZoomPopover& popover) { if (popover.on_zoom_in) popover.on_zoom_in(); }));
+        controls->addWidget(make_button(ChromeIcon::NewTab, WebView::ui_text("Zoom in"sv), [](ZoomPopover& popover) { if (popover.on_zoom_in) popover.on_zoom_in(); }));
         layout->addLayout(controls);
 
         auto* footer = new QHBoxLayout;
         footer->addStretch(1);
-        auto* reset = new QPushButton("Reset", &card());
+        auto* reset = new QPushButton(&card());
+        bind_ui_text(*reset, WebView::ui_text("Reset"sv), [reset](QString const& text) { reset->setText(text); });
         reset->setObjectName("LadybirdPopoverLink");
         reset->setCursor(Qt::PointingHandCursor);
         QObject::connect(reset, &QPushButton::clicked, this, [this] {
@@ -538,12 +542,12 @@ void Tab::initialize(Optional<u64> hub_view_id)
 
         hide_hover_label();
 
-        auto initiator = initiator_origin.is_opaque() ? "This page"_string : initiator_origin.serialize();
-        auto application_name = handler_name.is_empty() ? "another application"sv : handler_name.bytes_as_string_view();
-        auto title = handler_name.is_empty() ? "Open external application?"_string : MUST(String::formatted("Open {}?", application_name));
-        auto message = MUST(String::formatted("{} wants to open a {} link with {}.", initiator, url.scheme(), application_name));
-        auto details = MUST(String::formatted("URL: '{}'", url));
-        auto open_button_text = handler_name.is_empty() ? "Open"_string : MUST(String::formatted("Open {}", application_name));
+        auto initiator = initiator_origin.is_opaque() ? WebView::translate(WebView::ui_text("This page"sv)) : initiator_origin.serialize();
+        auto application_name = handler_name.is_empty() ? WebView::translate(WebView::ui_text("another application"sv)) : MUST(String::from_utf8(handler_name.bytes_as_string_view()));
+        auto title = WebView::translate(handler_name.is_empty() ? WebView::ui_text("Open external application?"sv) : WebView::ui_text("Open {0}?"sv, { application_name }));
+        auto message = WebView::translate(WebView::ui_text("{0} wants to open a {1} link with {2}."sv, { initiator, MUST(String::formatted("{}", url.scheme())), application_name }));
+        auto details = WebView::translate(WebView::ui_text("URL: '{0}'"sv, { MUST(String::formatted("{}", url)) }));
+        auto open_button_text = WebView::translate(handler_name.is_empty() ? WebView::ui_text("Open"sv) : WebView::ui_text("Open {0}"sv, { application_name }));
 
         auto* dialog = new QMessageBox(&view());
         m_external_url_confirmation_dialog = dialog;
@@ -554,7 +558,7 @@ void Tab::initialize(Optional<u64> hub_view_id)
         dialog->setText(qstring_from_ak_string(message));
         dialog->setDetailedText(qstring_from_ak_string(details));
         auto* open_button = dialog->addButton(qstring_from_ak_string(open_button_text), QMessageBox::ButtonRole::AcceptRole);
-        dialog->addButton(QMessageBox::StandardButton::Cancel);
+        dialog->addButton(QMessageBox::StandardButton::Cancel)->setText(translate_to_qstring(WebView::ui_text("Cancel"sv)));
         dialog->setDefaultButton(QMessageBox::StandardButton::Cancel);
 
         QObject::connect(dialog, &QDialog::finished, this, [this, dialog = QPointer<QMessageBox> { dialog }, open_button, on_complete = AK::move(on_complete)](auto) mutable {
@@ -887,12 +891,20 @@ void Tab::create_tab_context_menu()
 {
     auto& application = ApplicationActions::the();
 
-    auto* duplicate_tab_action = new QAction("&Duplicate Tab", this);
+    // NB: Binding a slot again replaces the text bound to it, so a text that changes follows both the language and the
+    //     state that picks it.
+    auto bind_action_text = [](QAction& action, WebView::UIText text) {
+        bind_ui_text(action, "text"sv, AK::move(text), [&action](QString const& text) { action.setText(text); });
+    };
+
+    auto* duplicate_tab_action = new QAction(this);
+    bind_action_text(*duplicate_tab_action, WebView::ui_text("&Duplicate Tab"sv));
     QObject::connect(duplicate_tab_action, &QAction::triggered, this, [this]() {
         m_window->duplicate_tab(*this);
     });
 
-    m_pin_tab_action = new QAction("&Pin Tab", this);
+    m_pin_tab_action = new QAction(this);
+    bind_action_text(*m_pin_tab_action, WebView::ui_text("&Pin Tab"sv));
     QObject::connect(m_pin_tab_action, &QAction::triggered, this, [this]() {
         if (m_is_pinned)
             m_window->unpin_tab(*this);
@@ -905,23 +917,27 @@ void Tab::create_tab_context_menu()
         m_window->new_tab_from_url(Application::settings().new_tab_page_url(), Web::HTML::ActivateTab::Yes, BrowserWindow::TabLocation::after_tab(*this));
     });
 
-    auto* mute_tab_action = new QAction("&Mute Tab", this);
+    auto* mute_tab_action = new QAction(this);
+    bind_action_text(*mute_tab_action, WebView::ui_text("&Mute Tab"sv));
     QObject::connect(mute_tab_action, &QAction::triggered, this, [this]() {
         if (is_loaded())
             view().toggle_page_mute_state();
     });
 
-    auto* move_to_new_window_action = new QAction("Move to New &Window", this);
+    auto* move_to_new_window_action = new QAction(this);
+    bind_action_text(*move_to_new_window_action, WebView::ui_text("Move to New &Window"sv));
     QObject::connect(move_to_new_window_action, &QAction::triggered, this, [this]() {
         m_window->detach_tab_to_new_window(tab_index(), m_window->mapToGlobal(QPoint(m_window->width() / 4, m_window->height() / 4)));
     });
 
-    auto* copy_link_action = new QAction("Copy &Link", this);
+    auto* copy_link_action = new QAction(this);
+    bind_action_text(*copy_link_action, WebView::ui_text("Copy &Link"sv));
     QObject::connect(copy_link_action, &QAction::triggered, this, [this]() {
         QGuiApplication::clipboard()->setText(qstring_from_ak_string(url().serialize()));
     });
 
-    auto* close_tab_action = new QAction("&Close Tab", this);
+    auto* close_tab_action = new QAction(this);
+    bind_action_text(*close_tab_action, WebView::ui_text("&Close Tab"sv));
     // NB: The shortcuts belong to the application's actions. The menu only shows them.
     close_tab_action->setShortcut(QKeySequence(QKeySequence::Close));
     close_tab_action->setShortcutContext(Qt::WidgetShortcut);
@@ -942,7 +958,8 @@ void Tab::create_tab_context_menu()
         }
     });
 
-    auto* close_other_tabs_action = new QAction("Cl&ose Other Tabs", this);
+    auto* close_other_tabs_action = new QAction(this);
+    bind_action_text(*close_other_tabs_action, WebView::ui_text("Cl&ose Other Tabs"sv));
     QObject::connect(close_other_tabs_action, &QAction::triggered, this, [this]() {
         // As with closing the following tabs, activate this tab first if the current tab is among those closing.
         if (auto* current = m_window->current_tab(); current && current != this && !current->is_pinned())
@@ -972,14 +989,14 @@ void Tab::create_tab_context_menu()
     m_context_menu->addSeparator();
     m_context_menu->addAction(Application::the().reopen_recently_closed_tab_action());
 
-    QObject::connect(m_context_menu, &QMenu::aboutToShow, this, [this, new_tab_action, close_following_tabs_action, mute_tab_action, move_to_new_window_action]() {
+    QObject::connect(m_context_menu, &QMenu::aboutToShow, this, [this, new_tab_action, close_following_tabs_action, mute_tab_action, move_to_new_window_action, bind_action_text]() {
         auto is_horizontal = m_window->tab_widget().tab_bar()->tab_layout() == TabLayout::Horizontal;
-        new_tab_action->setText(is_horizontal ? "New Tab to the &Right" : "New Tab &Below");
-        close_following_tabs_action->setText(is_horizontal ? "Close Tabs to the R&ight" : "Close Tabs B&elow");
+        bind_action_text(*new_tab_action, WebView::ui_text(is_horizontal ? "New Tab to the &Right"sv : "New Tab &Below"sv));
+        bind_action_text(*close_following_tabs_action, WebView::ui_text(is_horizontal ? "Close Tabs to the R&ight"sv : "Close Tabs B&elow"sv));
 
         // A tab that hasn't loaded has no page to mute yet.
         mute_tab_action->setEnabled(is_loaded());
-        mute_tab_action->setText(is_loaded() && view().page_mute_state() == Web::HTML::MuteState::Muted ? "Un&mute Tab" : "&Mute Tab");
+        bind_action_text(*mute_tab_action, WebView::ui_text(is_loaded() && view().page_mute_state() == Web::HTML::MuteState::Muted ? "Un&mute Tab"sv : "&Mute Tab"sv));
         move_to_new_window_action->setEnabled(m_window->tab_count() > 1);
     });
 }
@@ -1090,7 +1107,7 @@ void Tab::set_window(BrowserWindow& window)
 void Tab::set_pinned(bool pinned)
 {
     m_is_pinned = pinned;
-    m_pin_tab_action->setText(pinned ? "Un&pin Tab" : "&Pin Tab");
+    bind_ui_text(*m_pin_tab_action, "text"sv, WebView::ui_text(pinned ? "Un&pin Tab"sv : "&Pin Tab"sv), [this](QString const& text) { m_pin_tab_action->setText(text); });
     if (is_loaded())
         view().set_pinned(pinned);
 }
@@ -1550,14 +1567,14 @@ void Tab::close_popovers()
 static QString explanation_for_page_without_site(URL::URL const& url)
 {
     if (url.scheme() == "about"sv)
-        return QStringLiteral("Ladybird pages have no site settings.");
+        return translate_to_qstring(WebView::ui_text("Ladybird pages have no site settings."sv));
     if (url.scheme() == "file"sv)
-        return QStringLiteral("Files on this computer have no site settings.");
+        return translate_to_qstring(WebView::ui_text("Files on this computer have no site settings."sv));
     // NB: A page from a website can still have no origin of its own to keep settings for, for example when its
     //     Content-Security-Policy sandboxes it.
     if (url.scheme().is_one_of("http"sv, "https"sv))
-        return QStringLiteral("This page has no site settings.");
-    return QStringLiteral("Pages that are not from a website have no site settings.");
+        return translate_to_qstring(WebView::ui_text("This page has no site settings."sv));
+    return translate_to_qstring(WebView::ui_text("Pages that are not from a website have no site settings."sv));
 }
 
 void Tab::show_site_settings_popover()

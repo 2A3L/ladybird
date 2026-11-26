@@ -10,6 +10,7 @@
 #include <UI/Qt/BookmarkPopover.h>
 #include <UI/Qt/BookmarkStore.h>
 #include <UI/Qt/ChromeStyle.h>
+#include <UI/Qt/Localization.h>
 #include <UI/Qt/StringUtils.h>
 
 #include <QComboBox>
@@ -61,7 +62,9 @@ static size_t item_count_in_folder(ReadonlySpan<BookmarkItem> items, Optional<St
 BookmarkPopover::BookmarkPopover(QWidget* parent)
     : Popover(parent)
 {
-    setAccessibleName("Bookmark");
+    bind_ui_text(*this, WebView::ui_text("Bookmark"sv), [this](QString const& text) {
+        setAccessibleName(text);
+    });
     card().setObjectName("LadybirdBookmarkPopover");
     card().setFixedWidth(POPOVER_WIDTH);
 
@@ -73,12 +76,15 @@ BookmarkPopover::BookmarkPopover(QWidget* parent)
     m_title_label->setObjectName("LadybirdBookmarkPopoverTitle");
     layout->addWidget(m_title_label);
 
-    auto add_field = [&](QString const& label_text, QWidget* field) {
+    auto add_field = [&](WebView::UIText label_text, QWidget* field) {
         auto* row = new QWidget(&card());
         auto* row_layout = new QVBoxLayout(row);
         row_layout->setContentsMargins(0, 0, 0, 0);
         row_layout->setSpacing(5);
-        auto* label = new QLabel(label_text, row);
+        auto* label = new QLabel(row);
+        bind_ui_text(*label, AK::move(label_text), [label](QString const& text) {
+            label->setText(text);
+        });
         label->setObjectName("LadybirdBookmarkPopoverLabel");
         label->setBuddy(field);
         row_layout->addWidget(label);
@@ -92,17 +98,22 @@ BookmarkPopover::BookmarkPopover(QWidget* parent)
     m_name_field->setObjectName("LadybirdBookmarkPopoverName");
     // NB: The style sheet draws the field's focus, so the native focus ring isn't drawn over it.
     m_name_field->setAttribute(Qt::WA_MacShowFocusRect, false);
-    m_name_field->setAccessibleName("Name");
+    bind_ui_text(*m_name_field, WebView::ui_text("Name"sv), [this](QString const& text) {
+        m_name_field->setAccessibleName(text);
+    });
     QObject::connect(m_name_field, &QLineEdit::returnPressed, this, [this] { close(); });
-    add_field("Name", m_name_field);
+    add_field(WebView::ui_text("Name"sv), m_name_field);
 
     // NB: The picker is made anew each time the popover opens, as the folders may have changed.
-    m_folder_row = add_field("Folder", new QWidget);
+    m_folder_row = add_field(WebView::ui_text("Folder"sv), new QWidget);
 
     auto* buttons = new QHBoxLayout;
     buttons->setContentsMargins(0, 2, 0, 0);
     buttons->setSpacing(8);
-    auto* remove_button = new QPushButton("Remove", &card());
+    auto* remove_button = new QPushButton(&card());
+    bind_ui_text(*remove_button, WebView::ui_text("Remove"sv), [remove_button](QString const& text) {
+        remove_button->setText(text);
+    });
     remove_button->setObjectName("LadybirdBookmarkPopoverRemove");
     // NB: The platform style lays out a push button by a frame of its own rather than by the button, which would
     //     make it overlap its neighbors.
@@ -118,7 +129,10 @@ BookmarkPopover::BookmarkPopover(QWidget* parent)
     });
     buttons->addWidget(remove_button);
     buttons->addStretch(1);
-    auto* done_button = new QPushButton("Done", &card());
+    auto* done_button = new QPushButton(&card());
+    bind_ui_text(*done_button, WebView::ui_text("Done"sv), [done_button](QString const& text) {
+        done_button->setText(text);
+    });
     done_button->setObjectName("LadybirdBookmarkPopoverDone");
     done_button->setAttribute(Qt::WA_LayoutUsesWidgetRect);
     done_button->setDefault(true);
@@ -131,7 +145,9 @@ void BookmarkPopover::set_bookmark(String id, JustAdded just_added)
 {
     m_bookmark_id = AK::move(id);
     m_is_removed = false;
-    m_title_label->setText(just_added == JustAdded::Yes ? "Bookmark added" : "Edit bookmark");
+    bind_ui_text(*m_title_label, "title"sv, WebView::ui_text(just_added == JustAdded::Yes ? "Bookmark added"sv : "Edit bookmark"sv), [this](QString const& text) {
+        m_title_label->setText(text);
+    });
 
     auto& store = Application::bookmark_store();
     auto item = store.find_item_by_id(m_bookmark_id);
@@ -152,7 +168,7 @@ void BookmarkPopover::set_bookmark(String id, JustAdded just_added)
     m_folder_picker->setMinimumContentsLength(1);
     // NB: The platform style pads drop-downs for its own frame, which would shift the label above.
     m_folder_picker->setAttribute(Qt::WA_LayoutUsesWidgetRect);
-    m_folder_picker->setAccessibleName("Folder");
+    m_folder_picker->setAccessibleName(translate_to_qstring(WebView::ui_text("Folder"sv)));
     if (auto* row_layout = m_folder_row->layout(); row_layout->count() > 1) {
         auto* item = row_layout->takeAt(1);
         delete item->widget();
