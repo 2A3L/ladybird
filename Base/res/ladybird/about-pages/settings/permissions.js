@@ -1,3 +1,4 @@
+import { onInterfaceLanguageChange, t } from "../l10n.js";
 import { registerDialogDeepLink } from "./dialog-deep-link.js";
 
 const siteSettings = document.querySelector("#site-settings");
@@ -68,14 +69,14 @@ function populatePolicySelect(select, value) {
     for (const { value, label } of policies) {
         const option = document.createElement("option");
         option.value = value;
-        option.textContent = label;
+        option.textContent = t(label);
         select.appendChild(option);
     }
 
     if (value === "allow-once") {
         const option = document.createElement("option");
         option.value = value;
-        option.textContent = "Allow this time";
+        option.textContent = t("Allow this time");
         select.appendChild(option);
     }
 
@@ -90,7 +91,7 @@ function renderSiteSettings() {
     if (siteFilters.length === 0) {
         const placeholder = document.createElement("div");
         placeholder.className = "dialog-list-item-placeholder";
-        placeholder.textContent = "No sites added";
+        placeholder.textContent = t("No sites added");
         siteSettingsList.appendChild(placeholder);
     }
 
@@ -101,7 +102,7 @@ function renderSiteSettings() {
         filter.textContent = siteFilter;
 
         const select = document.createElement("select");
-        select.setAttribute("aria-label", `Policy for ${siteFilter}`);
+        select.setAttribute("aria-label", t("Policy for {0}", [siteFilter]));
         populatePolicySelect(select, site.policy);
         select.addEventListener("change", () => {
             ladybird.sendMessage("addSiteSettingFilter", {
@@ -113,7 +114,7 @@ function renderSiteSettings() {
 
         const remove = document.createElement("button");
         remove.className = "dialog-button";
-        remove.title = `Remove ${siteFilter}`;
+        remove.title = t("Remove {0}", [siteFilter]);
         remove.innerHTML =
             '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 3l10 10M13 3L3 13" /></svg>';
         remove.addEventListener("click", () => {
@@ -134,6 +135,10 @@ function renderSiteSettings() {
     });
 }
 
+function renderSiteSettingsTitle() {
+    siteSettingsTitle.innerText = t(SITE_SETTINGS[CURRENT_SETTING].title);
+}
+
 function showSiteSettings(setting) {
     if (CURRENT_SETTING !== setting) {
         siteSettingsInput.value = "";
@@ -143,7 +148,7 @@ function showSiteSettings(setting) {
     const selectedPolicy = CURRENT_SETTING === setting ? siteSettingsDecision.value : undefined;
     CURRENT_SETTING = setting;
 
-    siteSettingsTitle.innerText = SITE_SETTINGS[setting].title;
+    renderSiteSettingsTitle();
     populatePolicySelect(siteSettingsDecision, selectedPolicy);
     renderSiteSettings();
 
@@ -158,7 +163,7 @@ function addSiteSettingFilter() {
 
     const url = URL.parse(filter);
     if (!url || url.origin === "null") {
-        siteSettingsInput.setCustomValidity("Enter a site URL, such as https://example.com.");
+        siteSettingsInput.setCustomValidity(t("Enter a site URL, such as https://example.com."));
         siteSettingsInput.reportValidity();
         return;
     }
@@ -220,6 +225,14 @@ for (const setting of Object.keys(SITE_SETTINGS)) {
         location.hash = setting;
     });
 }
+
+onInterfaceLanguageChange(() => {
+    if (siteSettings.open) {
+        renderSiteSettingsTitle();
+        populatePolicySelect(siteSettingsDecision, siteSettingsDecision.value);
+        renderSiteSettings();
+    }
+});
 
 document.addEventListener("WebUILoaded", () => {
     ladybird.sendMessage("loadForciblyEnabledSiteSettings");

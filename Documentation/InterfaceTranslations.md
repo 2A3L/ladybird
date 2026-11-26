@@ -63,3 +63,7 @@ again from `onInterfaceLanguageChange()`.
 `Meta/Linters/lint_localization.py`, which `Meta/lint-ci.sh` runs, checks that every file is valid JSON without
 duplicate keys, that each translation has the placeholders of its English text and plurals have an `other` form, that no
 text is in two files read together, and that each text is still used where its file is read.
+
+The text of `settings.json` is looked for in `Base/res/ladybird/about-pages` and also in `Libraries/LibWebView`: the
+settings page translates the titles and descriptions of the advanced variables and the messages that `Settings.cpp` and
+`WebUI/SettingsUI.cpp` give it, as the English text lives in that code.

@@ -1,3 +1,5 @@
+import { onInterfaceLanguageChange, tp } from "../l10n.js";
+
 const tabLayoutGroup = document.querySelector("#tab-layout-group");
 const tabLayoutInputs = tabLayoutGroup.querySelectorAll('input[name="tab-layout"]');
 const verticalTabsExpandOnHover = document.querySelector("#vertical-tabs-expand-on-hover");
@@ -36,6 +38,15 @@ const tabLayout = () => {
     return TAB_SETTINGS.everythingInSidebar ? "sidebar" : "vertical";
 };
 
+// The option of a value set outside this page says so in the interface language.
+function renderDiscardOptions() {
+    for (const option of discardHiddenTabsAfter.querySelectorAll("option[data-minutes]")) {
+        option.textContent = tp(Number(option.dataset.minutes), "After {0} minute", "After {0} minutes");
+    }
+}
+
+onInterfaceLanguageChange(renderDiscardOptions);
+
 const loadSettings = settings => {
     if (!Object.hasOwn(settings, "tabs")) {
         return;
@@ -50,7 +61,10 @@ const loadSettings = settings => {
     const discardMinutes = String(TAB_SETTINGS.discardHiddenTabsAfterMinutes ?? 120);
     // A value set outside this page, such as in the settings file, gets an option of its own, so the menu shows it.
     if (![...discardHiddenTabsAfter.options].some(option => option.value === discardMinutes)) {
-        discardHiddenTabsAfter.add(new Option(`After ${discardMinutes} minutes`, discardMinutes));
+        const option = new Option("", discardMinutes);
+        option.dataset.minutes = discardMinutes;
+        discardHiddenTabsAfter.add(option);
+        renderDiscardOptions();
     }
     discardHiddenTabsAfter.value = discardMinutes;
     tabProcesses.value = TAB_SETTINGS.tabProcesses || "perOrigin";

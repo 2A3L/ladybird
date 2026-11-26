@@ -1,3 +1,4 @@
+import { onInterfaceLanguageChange, t } from "../l10n.js";
 import { registerDialogDeepLink } from "./dialog-deep-link.js";
 
 const searchClose = document.querySelector("#search-close");
@@ -42,7 +43,7 @@ function createEngineChoice(name, supportsSuggestions) {
 
     const label = document.createElement("span");
     label.className = "engine-name";
-    label.textContent = name || "None";
+    label.textContent = name || t("None");
 
     const check = document.createElementNS("http://www.w3.org/2000/svg", "svg");
     check.setAttribute("class", "engine-check");
@@ -60,10 +61,11 @@ function updateSearchSuggestionsControl() {
     const engine = selectedEngine();
     const supportsSuggestions = engine?.dataset.supportsSuggestions === "true";
     searchSuggestionsEnabled.disabled = !supportsSuggestions;
-    if (!engine?.value) searchSuggestionsDescription.textContent = "Choose a search engine to use search suggestions.";
+    if (!engine?.value)
+        searchSuggestionsDescription.textContent = t("Choose a search engine to use search suggestions.");
     else if (!supportsSuggestions)
-        searchSuggestionsDescription.textContent = `Search suggestions aren't available for ${engine.value}.`;
-    else searchSuggestionsDescription.textContent = `Sends what you type to ${engine.value}.`;
+        searchSuggestionsDescription.textContent = t("Search suggestions aren't available for {0}.", [engine.value]);
+    else searchSuggestionsDescription.textContent = t("Sends what you type to {0}.", [engine.value]);
 }
 
 function renderEngineSettings() {
@@ -105,7 +107,7 @@ function showSearchEngineSettings() {
     if (custom.length === 0) {
         const placeholder = document.createElement("div");
         placeholder.className = "dialog-list-item-placeholder";
-        placeholder.textContent = "No custom search engines added";
+        placeholder.textContent = t("No custom search engines added");
 
         searchList.appendChild(placeholder);
     }
@@ -127,7 +129,7 @@ function showSearchEngineSettings() {
         const remove = document.createElement("button");
         remove.className = "dialog-button";
         remove.innerHTML = "&times;";
-        remove.title = `Remove ${custom.name}`;
+        remove.title = t("Remove {0}", [custom.name]);
 
         remove.addEventListener("click", () => {
             ladybird.sendMessage("removeCustomSearchEngine", custom);
@@ -217,6 +219,8 @@ registerDialogDeepLink({
 searchSettings.addEventListener("click", () => {
     location.hash = "searchEngines";
 });
+
+onInterfaceLanguageChange(renderEngineSettings);
 
 document.addEventListener("WebUILoaded", () => {
     ladybird.sendMessage("loadAvailableEngines");
