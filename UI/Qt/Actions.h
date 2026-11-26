@@ -20,6 +20,7 @@
 #include <AK/WeakPtr.h>
 #include <AK/Weakable.h>
 #include <LibWebView/Forward.h>
+#include <LibWebView/Localization.h>
 
 namespace Ladybird {
 
@@ -151,12 +152,8 @@ enum class ActionID {
     BlockPopUps,
 };
 
-using ActionText = Variant<StringView, String>;
-
-inline StringView action_text_to_string_view(ActionText const& text)
-{
-    return text.visit([](auto const& text) -> StringView { return text; });
-}
+// Text that's shown as given, or, as a WebView::UIText, in the interface language.
+using ActionText = Variant<StringView, String, WebView::UIText>;
 
 class Action
     : public RefCounted<Action>
@@ -165,12 +162,17 @@ public:
     static NonnullRefPtr<Action> create(ActionText text, ActionID id, Function<void()> action);
     static NonnullRefPtr<Action> create_checkable(ActionText text, ActionID id, Function<void()> action);
 
+    ~Action();
+
+    // Shows every action's text, and every menu's title, in the interface language that was just set.
+    static void retranslate_all();
+
     void activate() { m_action(); }
 
-    StringView text() const { return action_text_to_string_view(m_text); }
+    StringView text() const { return m_resolved_text; }
     void set_text(ActionText);
 
-    StringView tooltip() const { return action_text_to_string_view(*m_tooltip); }
+    StringView tooltip() const { return m_resolved_tooltip; }
     void set_tooltip(ActionText);
 
     void set_png_icon(Optional<ByteBuffer> png_icon) { m_png_icon = move(png_icon); }
@@ -223,17 +225,15 @@ public:
     void set_group(Badge<Menu>, Menu& group) { m_group = group; }
 
 private:
-    Action(ActionText text, ActionID id, Function<void()> action)
-        : m_text(move(text))
-        , m_id(id)
-        , m_action(move(action))
-    {
-    }
+    Action(ActionText text, ActionID id, Function<void()> action);
 
     void set_checked_internal(bool checked);
+    void retranslate();
 
     ActionText m_text;
+    String m_resolved_text;
     Optional<ActionText> m_tooltip;
+    String m_resolved_tooltip;
     Optional<ByteBuffer> m_png_icon;
 
     ActionID m_id;
@@ -263,6 +263,8 @@ public:
     static NonnullRefPtr<Menu> create(ActionText title);
     static NonnullRefPtr<Menu> create_group(ActionText title);
 
+    ~Menu();
+
     void add_action(NonnullRefPtr<Action> action);
     void add_submenu(NonnullRefPtr<Menu> submenu) { m_items.append(move(submenu)); }
     void add_separator() { m_items.append(Separator {}); }
@@ -270,7 +272,7 @@ public:
     size_t size() const { return m_items.size(); }
     void shrink(size_t size) { m_items.shrink(size); }
 
-    StringView title() const { return action_text_to_string_view(m_title); }
+    StringView title() const { return m_resolved_title; }
 
     Span<MenuItem> items() { return m_items; }
     ReadonlySpan<MenuItem> items() const { return m_items; }
@@ -301,18 +303,19 @@ public:
         virtual ~Observer() = default;
 
         virtual void on_visible_state_changed(Menu&) { }
+        virtual void on_title_changed(Menu&) { }
     };
 
     void add_observer(NonnullOwnPtr<Observer>);
     void remove_observer(Observer const& observer);
 
+    void retranslate(Badge<Action>);
+
 private:
-    explicit Menu(ActionText title)
-        : m_title(move(title))
-    {
-    }
+    explicit Menu(ActionText title);
 
     ActionText m_title;
+    String m_resolved_title;
     Vector<MenuItem> m_items;
 
     HashMap<StringView, String> m_properties;
