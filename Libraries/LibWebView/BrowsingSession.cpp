@@ -6,6 +6,7 @@
 
 #include <LibWebView/BlobURLStore.h>
 #include <LibWebView/BrowsingSession.h>
+#include <LibWebView/CacheStorageStore.h>
 #include <LibWebView/CookieJar.h>
 #include <LibWebView/HSTSStore.h>
 #include <LibWebView/PermissionManager.h>
@@ -22,6 +23,14 @@ BrowsingSession::BrowsingSession(IsPrivate is_private)
 }
 
 BrowsingSession::~BrowsingSession() = default;
+
+bool BrowsingSession::install_cache_storage_store(NonnullOwnPtr<CacheStorageStore> store)
+{
+    if (m_cache_storage_store)
+        return false;
+    m_cache_storage_store = move(store);
+    return true;
+}
 
 NonnullRefPtr<BrowsingSession> BrowsingSession::create(IsPrivate is_private)
 {

@@ -163,6 +163,60 @@ def run_test(webdriver_binary):
             assert any(item["lastUpdatedAt"] is not None for item in final_changes["contentBlockerLists"])
             assert script("return draftInput === document.getElementById(draftInput.id) && draftInput.value === '999';")
 
+            command("url", {"url": "about:settings#privacy"})
+            # The browser reports a failed clear separately from success; keep the dialog open and announce the error.
+            privacy_status = script("""
+                const dialog = document.querySelector('#browsing-data-settings-dialog');
+                dialog.showModal();
+                document.dispatchEvent(new CustomEvent('WebUIMessage', {detail: {name: 'clearBrowsingDataFailed', data: {}}}));
+                const error = document.querySelector('#clear-browsing-data-error');
+                return {open: dialog.open, hidden: error.hidden, role: error.getAttribute('role'), message: error.textContent};
+            """)
+            assert privacy_status["open"] and not privacy_status["hidden"], privacy_status
+            assert privacy_status["role"] == "alert" and "may not have been removed" in privacy_status["message"], privacy_status
+            assert script("""
+                document.dispatchEvent(new CustomEvent('WebUIMessage', {detail: {name: 'clearedBrowsingData', data: {}}}));
+                return !document.querySelector('#browsing-data-settings-dialog').open;
+            """), "The clear-data dialog did not close after success"
+
+            # Closing the dialog while a clear is pending must re-enable the button, and the late reply must not
+            # close the reopened dialog.
+            late_reply = command(
+                "execute/async",
+                {
+                    "script": """
+                    const done = arguments[0];
+                    (async () => {
+                        const dialog = document.querySelector('#browsing-data-settings-dialog');
+                        const button = document.querySelector('#clear-browsing-data-remove-data');
+                        const siteData = document.querySelector('#clear-browsing-data-site-data');
+                        const originalSendMessage = ladybird.sendMessage;
+                        ladybird.sendMessage = () => {};
+                        try {
+                            siteData.checked = true;
+                            siteData.dispatchEvent(new Event('change'));
+                            dialog.showModal();
+                            button.click();
+                            const disabledWhilePending = button.disabled;
+                            const closed = new Promise(resolve => dialog.addEventListener('close', resolve, {once: true}));
+                            dialog.close();
+                            await closed;
+                            dialog.showModal();
+                            const enabledAfterReopen = !button.disabled;
+                            document.dispatchEvent(new CustomEvent('WebUIMessage', {detail: {name: 'clearedBrowsingData', data: {}}}));
+                            const stillOpen = dialog.open;
+                            dialog.close();
+                            return {disabledWhilePending, enabledAfterReopen, stillOpen};
+                        } finally {
+                            ladybird.sendMessage = originalSendMessage;
+                        }
+                    })().then(done);
+                """,
+                    "args": [],
+                },
+            )
+            assert late_reply == {"disabledWhilePending": True, "enabledAfterReopen": True, "stillOpen": True}, late_reply
+
             command("url", {"url": "about:welcome"})
             command(
                 "execute/async",

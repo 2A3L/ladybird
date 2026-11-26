@@ -71,6 +71,7 @@ set(TEST_SOURCES
     TestAutocompleteMuxer.cpp
     TestAutocompleteRanker.cpp
     TestBackgroundNetworking.cpp
+    TestCacheStorageLeaseRegistry.cpp
     TestCacheStoragePartition.cpp
     TestCacheStorageStore.cpp
     TestCanonicalBrowsingContextGroup.cpp
