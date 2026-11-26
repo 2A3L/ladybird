@@ -241,6 +241,7 @@
         "Cookies and site data": "Cookies y datos de sitios",
         "Remove items that may sign you out of most sites": "Borrar elementos que pueden cerrar tu sesión en la mayoría de los sitios",
         "Remove data": "Borrar datos",
+        "Some selected data may not have been removed. Try again.": "Puede que algunos de los datos seleccionados no se hayan borrado. Inténtalo de nuevo.",
         "Language used for supported parts of the browser interface.": "Idioma que se usa en las partes compatibles de la interfaz del navegador.",
         "Blocks advertising on English-language websites.": "Bloquea la publicidad en sitios web en inglés.",
         "Blocks tracking scripts, pixels, and other tracking requests.": "Bloquea scripts de seguimiento, píxeles y otras solicitudes de rastreo.",

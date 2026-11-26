@@ -139,8 +139,14 @@ globalPrivacyControlToggle.addEventListener("change", () => {
     ladybird.sendMessage("setGlobalPrivacyControl", globalPrivacyControlToggle.checked);
 });
 
+const clearFailedText = () => t("Some selected data may not have been removed. Try again.");
+
 onInterfaceLanguageChange(() => {
     if (browsingDataSizes) updateBrowsingDataSizes(browsingDataSizes);
+
+    for (const error of [clearBrowsingDataError, clearBrowsingDataPageError]) {
+        if (!error.hidden) error.textContent = clearFailedText();
+    }
 });
 
 document.addEventListener("WebUILoaded", estimateBrowsingDataSizes);
@@ -165,7 +171,7 @@ document.addEventListener("WebUIMessage", event => {
         } else {
             const error =
                 isCurrentClear && browsingDataSettingsDialog.open ? clearBrowsingDataError : clearBrowsingDataPageError;
-            error.textContent = "Some selected data may not have been removed. Try again.";
+            error.textContent = clearFailedText();
             error.hidden = false;
         }
         estimateBrowsingDataSizes();
