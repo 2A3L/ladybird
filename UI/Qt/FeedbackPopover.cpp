@@ -7,6 +7,7 @@
 #include <UI/Qt/ChromeStyle.h>
 #include <UI/Qt/FeedbackPopover.h>
 #include <UI/Qt/Icon.h>
+#include <UI/Qt/Localization.h>
 #include <UI/Qt/Theme.h>
 
 #include <QFrame>
@@ -42,6 +43,15 @@ static QLabel* create_detail_label(QString const& text, QWidget& row)
     return label;
 }
 
+static QLabel* create_detail_label(WebView::UIText text, QWidget& row)
+{
+    auto* label = create_detail_label(QString {}, row);
+    bind_ui_text(*label, AK::move(text), [label](QString const& text) {
+        label->setText(text);
+    });
+    return label;
+}
+
 static QLabel* create_row_icon(QWidget& row, int size)
 {
     auto* icon = new QLabel(&row);
@@ -50,11 +60,13 @@ static QLabel* create_row_icon(QWidget& row, int size)
     return icon;
 }
 
-static QPushButton* create_row(QWidget& parent, QString const& accessible_name, int height)
+static QPushButton* create_row(QWidget& parent, WebView::UIText accessible_name, int height)
 {
     auto* row = new QPushButton(&parent);
     row->setObjectName("LadybirdPopoverRow");
-    row->setAccessibleName(accessible_name);
+    bind_ui_text(*row, AK::move(accessible_name), [row](QString const& text) {
+        row->setAccessibleName(text);
+    });
     row->setFixedHeight(height);
     row->setAttribute(Qt::WA_LayoutUsesWidgetRect);
     auto* layout = new QHBoxLayout(row);
@@ -63,13 +75,17 @@ static QPushButton* create_row(QWidget& parent, QString const& accessible_name, 
     return row;
 }
 
-static QVBoxLayout* create_row_text(QPushButton& row, QString const& title)
+static QVBoxLayout* create_row_text(QPushButton& row, WebView::UIText title)
 {
     auto* text = new QVBoxLayout;
     text->setContentsMargins(0, 0, 0, 0);
     text->setSpacing(2);
     text->setAlignment(Qt::AlignVCenter);
-    text->addWidget(create_row_label(title, row));
+    auto* label = create_row_label({}, row);
+    bind_ui_text(*label, AK::move(title), [label](QString const& text) {
+        label->setText(text);
+    });
+    text->addWidget(label);
     static_cast<QHBoxLayout*>(row.layout())->addLayout(text, 1);
     return text;
 }
@@ -77,7 +93,9 @@ static QVBoxLayout* create_row_text(QPushButton& row, QString const& title)
 FeedbackPopover::FeedbackPopover(QWidget* parent)
     : Popover(parent)
 {
-    setAccessibleName("Send feedback");
+    bind_ui_text(*this, WebView::ui_text("Send feedback"sv), [this](QString const& text) {
+        setAccessibleName(text);
+    });
     card().setObjectName("LadybirdFeedbackPopover");
     card().setFixedWidth(POPOVER_WIDTH);
 
@@ -85,9 +103,9 @@ FeedbackPopover::FeedbackPopover(QWidget* parent)
     layout->setContentsMargins(6, 6, 6, 6);
     layout->setSpacing(0);
 
-    m_report_site_row = create_row(card(), "Report a problem with this site", ROW_WITH_DETAIL_HEIGHT);
-    auto* report_site_text = create_row_text(*m_report_site_row, "Report a problem with this site");
-    m_host_label = create_detail_label({}, *m_report_site_row);
+    m_report_site_row = create_row(card(), WebView::ui_text("Report a problem with this site"sv), ROW_WITH_DETAIL_HEIGHT);
+    auto* report_site_text = create_row_text(*m_report_site_row, WebView::ui_text("Report a problem with this site"sv));
+    m_host_label = create_detail_label(QString {}, *m_report_site_row);
     report_site_text->addWidget(m_host_label);
     QObject::connect(m_report_site_row, &QPushButton::clicked, this, [this] {
         close();
@@ -96,9 +114,9 @@ FeedbackPopover::FeedbackPopover(QWidget* parent)
     });
     layout->addWidget(m_report_site_row);
 
-    auto* report_bug_row = create_row(card(), "Report a bug on GitHub", ROW_WITH_DETAIL_HEIGHT);
-    auto* report_bug_text = create_row_text(*report_bug_row, "Report a bug");
-    report_bug_text->addWidget(create_detail_label("On GitHub", *report_bug_row));
+    auto* report_bug_row = create_row(card(), WebView::ui_text("Report a bug on GitHub"sv), ROW_WITH_DETAIL_HEIGHT);
+    auto* report_bug_text = create_row_text(*report_bug_row, WebView::ui_text("Report a bug"sv));
+    report_bug_text->addWidget(create_detail_label(WebView::ui_text("On GitHub"sv), *report_bug_row));
     m_external_link_icon = create_row_icon(*report_bug_row, EXTERNAL_LINK_ICON_SIZE);
     report_bug_row->layout()->addWidget(m_external_link_icon);
     QObject::connect(report_bug_row, &QPushButton::clicked, this, [this] {
@@ -122,14 +140,14 @@ FeedbackPopover::FeedbackPopover(QWidget* parent)
     section_layout->addLayout(separator_row);
 
     // NB: The Feedback button's dot sits right before the count, which keeps the row's title in line with the others.
-    auto* crash_reports_row = create_row(*m_crash_reports_section, "Crash reports", ROW_HEIGHT);
-    create_row_text(*crash_reports_row, "Crash reports");
+    auto* crash_reports_row = create_row(*m_crash_reports_section, WebView::ui_text("Crash reports"sv), ROW_HEIGHT);
+    create_row_text(*crash_reports_row, WebView::ui_text("Crash reports"sv));
     auto* count_layout = new QHBoxLayout;
     count_layout->setContentsMargins(0, 0, 0, 0);
     count_layout->setSpacing(CRASH_REPORTS_DOT_GAP);
     m_crash_reports_dot = create_row_icon(*crash_reports_row, CRASH_REPORTS_DOT_SIZE);
     count_layout->addWidget(m_crash_reports_dot);
-    m_crash_reports_count = create_detail_label({}, *crash_reports_row);
+    m_crash_reports_count = create_detail_label(QString {}, *crash_reports_row);
     count_layout->addWidget(m_crash_reports_count);
     static_cast<QHBoxLayout*>(crash_reports_row->layout())->addLayout(count_layout);
     m_crash_reports_chevron = create_row_icon(*crash_reports_row, CHEVRON_ICON_SIZE);
@@ -173,7 +191,9 @@ void FeedbackPopover::set_reportable_host(QString const& host)
 
 void FeedbackPopover::set_crash_report_count(size_t count)
 {
-    m_crash_reports_count->setText(QString("%1 to review").arg(count));
+    bind_ui_text(*m_crash_reports_count, "count"sv, WebView::ui_text("{0} to review"sv, { String::number(count) }), [this](QString const& text) {
+        m_crash_reports_count->setText(text);
+    });
     m_crash_reports_section->setVisible(count > 0);
 }
 

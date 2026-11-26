@@ -13,6 +13,7 @@
 #include <UI/Qt/Autocomplete.h>
 #include <UI/Qt/ChromeStyle.h>
 #include <UI/Qt/Icon.h>
+#include <UI/Qt/Localization.h>
 #include <UI/Qt/LocationEdit.h>
 #include <UI/Qt/Menu.h>
 #include <UI/Qt/Motion.h>
@@ -455,7 +456,13 @@ LocationEdit::LocationEdit(QWidget* parent, WebView::Settings& settings, Nonnull
         button->installEventFilter(this);
 
     update_text_margins();
-    setPlaceholderText("Search or enter address");
+    bind_ui_text(*this, WebView::ui_text("Search or enter address"sv), [this](QString const& text) {
+        setPlaceholderText(text);
+    });
+    // NB: The site settings button and the not secure pill name themselves in the interface language.
+    bind_ui_text(*this, WebView::ui_text("Site settings"sv), [this](QString const&) {
+        update_location_icon();
+    });
     update_location_icon();
 
     m_omnibox.on_display_change = [this](WebView::Omnibox::Display const& display) {
@@ -1342,7 +1349,7 @@ void LocationEdit::update_location_icon()
         m_shows_site_settings_button = true;
         m_leading_icon_button->setIconSize({ 16, 16 });
         m_leading_icon_button->setFixedSize(LOCATION_SITE_SETTINGS_BUTTON_WIDTH, LOCATION_PILL_HEIGHT);
-        m_leading_icon_button->setToolTip("Site settings");
+        m_leading_icon_button->setToolTip(translate_to_qstring(WebView::ui_text("Site settings"sv)));
         show_indicator(LOCATION_TEXT_MARGIN_FOR_TEXT_X);
     };
 
@@ -1351,14 +1358,15 @@ void LocationEdit::update_location_icon()
         m_leading_icon_button->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
         m_leading_icon_button->setIcon(create_chrome_icon(ChromeIcon::Warning, Theme::chrome(*this).warning_ink));
         m_leading_icon_button->setIconSize({ 14, 14 });
-        m_leading_icon_button->setText("Not secure");
+        auto not_secure = translate_to_qstring(WebView::ui_text("Not secure"sv));
+        m_leading_icon_button->setText(not_secure);
 
         auto font = m_leading_icon_button->font();
         font.setPixelSize(12);
         font.setWeight(QFont::Medium);
-        auto width = QFontMetrics(font).horizontalAdvance("Not secure") + 14 + 5 + LOCATION_PILL_HORIZONTAL_PADDING;
+        auto width = QFontMetrics(font).horizontalAdvance(not_secure) + 14 + 5 + LOCATION_PILL_HORIZONTAL_PADDING;
         m_leading_icon_button->setFixedSize(width, LOCATION_PILL_HEIGHT);
-        m_leading_icon_button->setToolTip("The connection to this site is not secure");
+        m_leading_icon_button->setToolTip(translate_to_qstring(WebView::ui_text("The connection to this site is not secure"sv)));
         // NB: The pill is wider than the icon, so the text follows it.
         show_indicator(leading_indicator_inset(*this, *m_leading_icon_button) + width + LOCATION_LEADING_ITEM_GAP - LOCATION_TEXT_PADDING);
     };

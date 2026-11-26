@@ -25,6 +25,7 @@
 #include <UI/Qt/HubConnection.h>
 #include <UI/Qt/Icon.h>
 #include <UI/Qt/LadybirdButton.h>
+#include <UI/Qt/Localization.h>
 #include <UI/Qt/Menu.h>
 #include <UI/Qt/Motion.h>
 #include <UI/Qt/Popover.h>
@@ -235,7 +236,9 @@ ExitFullscreenButton::ExitFullscreenButton(QWidget* parent)
     setAttribute(Qt::WA_NativeWindow);
 #endif
     setAttribute(Qt::WA_TranslucentBackground);
-    setAccessibleName("Exit full screen");
+    bind_ui_text(*this, WebView::ui_text("Exit full screen"sv), [this](QString const& text) {
+        setAccessibleName(text);
+    });
     setCursor(Qt::PointingHandCursor);
     hide();
     cast_floating_shadow(*this, FULLSCREEN_TOAST_HEIGHT / 2.0, FloatingShadowTone::Dark);
@@ -262,9 +265,9 @@ void ExitFullscreenButton::set_host(QString host)
 QSize ExitFullscreenButton::sizeHint() const
 {
     auto host_width = m_host.isEmpty() ? 0 : QFontMetrics(fullscreen_toast_font(font(), QFont::DemiBold)).horizontalAdvance(m_host);
-    auto message = m_host.isEmpty() ? QStringLiteral("Full screen") : QStringLiteral(" is now full screen");
+    auto message = translate_to_qstring(m_host.isEmpty() ? WebView::ui_text("Full screen"sv) : WebView::ui_text(" is now full screen"sv));
     auto text_width = host_width + QFontMetrics(fullscreen_toast_font(font())).horizontalAdvance(message);
-    auto exit_width = QFontMetrics(fullscreen_toast_font(font())).horizontalAdvance(qstring_from_ak_string(FULLSCREEN_TOAST_EXIT_TEXT));
+    auto exit_width = QFontMetrics(fullscreen_toast_font(font())).horizontalAdvance(translate_to_qstring(WebView::ui_text(FULLSCREEN_TOAST_EXIT_TEXT)));
     return { (2 * FULLSCREEN_TOAST_PADDING) + text_width + (2 * FULLSCREEN_TOAST_GAP) + 1 + exit_width, FULLSCREEN_TOAST_HEIGHT };
 }
 
@@ -288,15 +291,15 @@ void ExitFullscreenButton::paintEvent(QPaintEvent*)
     };
     if (!m_host.isEmpty()) {
         draw_text(m_host, fullscreen_toast_font(font(), QFont::DemiBold), Qt::white);
-        draw_text(QStringLiteral(" is now full screen"), fullscreen_toast_font(font()), Qt::white);
+        draw_text(translate_to_qstring(WebView::ui_text(" is now full screen"sv)), fullscreen_toast_font(font()), Qt::white);
     } else {
-        draw_text(QStringLiteral("Full screen"), fullscreen_toast_font(font()), Qt::white);
+        draw_text(translate_to_qstring(WebView::ui_text("Full screen"sv)), fullscreen_toast_font(font()), Qt::white);
     }
 
     x += FULLSCREEN_TOAST_GAP;
     painter.fillRect(QRect(x, (height() - 14) / 2, 1, 14), QColor(255, 255, 255, 64));
     x += 1 + FULLSCREEN_TOAST_GAP;
-    draw_text(qstring_from_ak_string(FULLSCREEN_TOAST_EXIT_TEXT), fullscreen_toast_font(font()), QColor(0xd0, 0xd0, 0xd6));
+    draw_text(translate_to_qstring(WebView::ui_text(FULLSCREEN_TOAST_EXIT_TEXT)), fullscreen_toast_font(font()), QColor(0xd0, 0xd0, 0xd6));
 }
 
 void ExitFullscreenButton::animate_show()
@@ -550,7 +553,10 @@ void BrowserWindow::initialize_ladybird_menu()
     m_ladybird_menu->addAction(application.new_private_window_action());
     m_ladybird_menu->addAction(application.reopen_recently_closed_tab_action());
     if (m_is_private == WebView::IsPrivate::Yes) {
-        auto* restart_private_session_action = m_ladybird_menu->addAction("Start a Fresh Private Session…");
+        auto* restart_private_session_action = m_ladybird_menu->addAction(QString());
+        bind_ui_text(*restart_private_session_action, WebView::ui_text("Start a Fresh Private Session…"sv), [restart_private_session_action](QString const& text) {
+            restart_private_session_action->setText(text);
+        });
         QObject::connect(restart_private_session_action, &QAction::triggered, this, [this] {
             if (m_current_tab)
                 m_current_tab->show_private_session_popover();
@@ -560,7 +566,10 @@ void BrowserWindow::initialize_ladybird_menu()
 
     m_ladybird_menu->addMenu(application.history_menu());
     m_ladybird_menu->addMenu(application.bookmarks_menu());
-    auto* downloads_action = m_ladybird_menu->addAction("Downloads");
+    auto* downloads_action = m_ladybird_menu->addAction(QString());
+    bind_ui_text(*downloads_action, WebView::ui_text("Downloads"sv), [downloads_action](QString const& text) {
+        downloads_action->setText(text);
+    });
     downloads_action->setShortcutVisibleInContextMenu(true);
     // NB: The application's own downloads action owns the shortcut. This item only shows it.
 #if defined(AK_OS_MACOS)
@@ -611,27 +620,40 @@ void BrowserWindow::initialize_window_context_menu()
 {
     m_window_context_menu = new QMenu(this);
 
-    auto* new_tab_action = m_window_context_menu->addAction("New &Tab");
+    auto bind_action_text = [](QAction& action, StringView source) {
+        bind_ui_text(action, WebView::ui_text(source), [&action](QString const& text) {
+            action.setText(text);
+        });
+    };
+
+    auto* new_tab_action = m_window_context_menu->addAction(QString());
+    bind_action_text(*new_tab_action, "New &Tab"sv);
     QObject::connect(new_tab_action, &QAction::triggered, this, &BrowserWindow::open_new_tab);
 
-    m_reopen_closed_tab_action = m_window_context_menu->addAction("&Reopen Closed Tab");
+    m_reopen_closed_tab_action = m_window_context_menu->addAction(QString());
+    bind_action_text(*m_reopen_closed_tab_action, "&Reopen Closed Tab"sv);
     QObject::connect(m_reopen_closed_tab_action, &QAction::triggered, this, [this] {
         Application::the().reopen_recently_closed_tab(this);
     });
 
     m_window_context_menu->addSeparator();
 
-    m_always_on_top_action = m_window_context_menu->addAction("Always on T&op");
+    m_always_on_top_action = m_window_context_menu->addAction(QString());
+    bind_action_text(*m_always_on_top_action, "Always on T&op"sv);
     m_always_on_top_action->setCheckable(true);
     QObject::connect(m_always_on_top_action, &QAction::triggered, this, &BrowserWindow::set_always_on_top);
 
     m_window_context_menu->addSeparator();
 
     // The tab layouts of Settings, with the sidebar's side made part of the choice.
-    auto* tab_layout_menu = m_window_context_menu->addMenu("Tab &Layout");
+    auto* tab_layout_menu = m_window_context_menu->addMenu(QString());
+    bind_ui_text(*tab_layout_menu, WebView::ui_text("Tab &Layout"sv), [tab_layout_menu](QString const& text) {
+        tab_layout_menu->setTitle(text);
+    });
     m_tab_layout_actions = new QActionGroup(this);
-    auto add_tab_layout = [&](char const* text, TabLayoutChoice choice) {
-        auto* action = tab_layout_menu->addAction(text);
+    auto add_tab_layout = [&](StringView text, TabLayoutChoice choice) {
+        auto* action = tab_layout_menu->addAction(QString());
+        bind_action_text(*action, text);
         action->setCheckable(true);
         action->setData(to_underlying(choice));
         m_tab_layout_actions->addAction(action);
@@ -646,10 +668,10 @@ void BrowserWindow::initialize_window_context_menu()
             Application::settings().set_tab_settings(tab_settings);
         });
     };
-    add_tab_layout("Along the &Top", TabLayoutChoice::AlongTheTop);
-    add_tab_layout("Down the &Left Side", TabLayoutChoice::DownTheLeftSide);
-    add_tab_layout("Down the &Right Side", TabLayoutChoice::DownTheRightSide);
-    add_tab_layout("In the &Sidebar", TabLayoutChoice::InTheSidebar);
+    add_tab_layout("Along the &Top"sv, TabLayoutChoice::AlongTheTop);
+    add_tab_layout("Down the &Left Side"sv, TabLayoutChoice::DownTheLeftSide);
+    add_tab_layout("Down the &Right Side"sv, TabLayoutChoice::DownTheRightSide);
+    add_tab_layout("In the &Sidebar"sv, TabLayoutChoice::InTheSidebar);
 }
 
 void BrowserWindow::show_window_context_menu(QPoint global_position)
@@ -1372,10 +1394,13 @@ int BrowserWindow::tab_index(Tab* tab)
 
 void BrowserWindow::update_window_title(QString const& title)
 {
-    char const* format = is_private() == WebView::IsPrivate::Yes
-        ? "%1 - " BROWSER_PRODUCT_NAME " (Private)"
-        : "%1 - " BROWSER_PRODUCT_NAME;
-    setWindowTitle(QString(format).arg(title));
+    if (is_private() == WebView::IsPrivate::Yes) {
+        bind_ui_text(*this, "title"sv, WebView::ui_text("{0} - {1} (Private)"sv, { ak_string_from_qstring(title), BROWSER_PRODUCT_NAME ""_string }), [this](QString const& text) {
+            setWindowTitle(text);
+        });
+        return;
+    }
+    setWindowTitle(QString("%1 - " BROWSER_PRODUCT_NAME).arg(title));
 }
 
 void BrowserWindow::tab_title_changed(int index, QString const& title)
@@ -1404,7 +1429,9 @@ void BrowserWindow::update_chrome_style()
 TabBarButton* BrowserWindow::create_tab_close_button(Tab& tab)
 {
     auto* close_button = new TabBarButton(create_chrome_icon(ChromeIcon::TabClose, Theme::chrome_palette(*this)), TabBarButton::Role::Close);
-    close_button->setToolTip("Close Tab");
+    bind_ui_text(*close_button, WebView::ui_text("Close Tab"sv), [close_button](QString const& text) {
+        close_button->setToolTip(text);
+    });
     connect(close_button, &QPushButton::clicked, this, [this, tab = &tab]() {
         m_tabs_container->tab_bar()->lock_tab_widths();
         request_to_close_tab(m_tabs_container->index_of(tab));
@@ -1504,7 +1531,9 @@ void BrowserWindow::update_menu_bar_window_control_icons()
     auto is_maximized = this->isMaximized();
     m_menu_bar_minimize_window_button->setIcon(create_chrome_icon(ChromeIcon::WindowMinimize, Theme::chrome_palette(*this)));
     m_menu_bar_maximize_window_button->setIcon(create_chrome_icon(is_maximized ? ChromeIcon::WindowRestore : ChromeIcon::WindowMaximize, Theme::chrome_palette(*this)));
-    m_menu_bar_maximize_window_button->setToolTip(is_maximized ? "Restore" : "Maximize");
+    bind_ui_text(*m_menu_bar_maximize_window_button, "tooltip"sv, WebView::ui_text(is_maximized ? "Restore"sv : "Maximize"sv), [button = m_menu_bar_maximize_window_button](QString const& text) {
+        button->setToolTip(text);
+    });
     m_menu_bar_close_window_button->setIcon(create_chrome_icon(ChromeIcon::WindowClose, Theme::chrome_palette(*this)));
 }
 
@@ -1612,7 +1641,9 @@ void BrowserWindow::update_tab_audio_button(Tab& tab)
         m_tabs_container->update_tab_button_visibility();
     }
     button->setIcon(icon_for_page_mute_state(tab));
-    button->setToolTip(tool_tip_for_page_mute_state(tab));
+    bind_ui_text(*button, "tooltip"sv, tool_tip_for_page_mute_state(tab), [button](QString const& text) {
+        button->setToolTip(text);
+    });
 }
 
 QIcon BrowserWindow::icon_for_page_mute_state(Tab& tab) const
@@ -1627,13 +1658,13 @@ QIcon BrowserWindow::icon_for_page_mute_state(Tab& tab) const
     VERIFY_NOT_REACHED();
 }
 
-QString BrowserWindow::tool_tip_for_page_mute_state(Tab& tab) const
+WebView::UIText BrowserWindow::tool_tip_for_page_mute_state(Tab& tab) const
 {
     switch (tab.view().page_mute_state()) {
     case Web::HTML::MuteState::Muted:
-        return "Unmute tab";
+        return WebView::ui_text("Unmute tab"sv);
     case Web::HTML::MuteState::Unmuted:
-        return "Mute tab";
+        return WebView::ui_text("Mute tab"sv);
     }
 
     VERIFY_NOT_REACHED();

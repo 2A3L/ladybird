@@ -15,6 +15,7 @@
 #include <LibWebCommon/Page/PageId.h>
 #include <LibWebView/BrowsingSession.h>
 #include <LibWebView/Forward.h>
+#include <LibWebView/Localization.h>
 #include <LibWebView/Settings.h>
 #include <UI/Qt/FullscreenDebounce.h>
 #include <UI/Qt/MacWindow.h>
@@ -336,7 +337,7 @@ private:
     void set_always_on_top(bool);
 
     QIcon icon_for_page_mute_state(Tab&) const;
-    QString tool_tip_for_page_mute_state(Tab&) const;
+    WebView::UIText tool_tip_for_page_mute_state(Tab&) const;
 
     WindowScreenObserver* m_screen_observer { nullptr };
 
