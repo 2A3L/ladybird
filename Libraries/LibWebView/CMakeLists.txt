@@ -45,6 +45,7 @@ set(SOURCES
     ImageDecoderManager.cpp
     LingeringIndicator.cpp
     LocalFileRoot.cpp
+    Localization.cpp
     MediaSessionCoordinator.cpp
     NavigationLoader.cpp
     Omnibox.cpp
