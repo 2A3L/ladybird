@@ -42,6 +42,9 @@ public:
     // NB: Null for the ordinary session until Application fills these in during startup.
     OwnPtr<CookieJar> cookie_jar;
     OwnPtr<StorageJar> storage_jar;
+    // Installed only after activation gates pass and never replaced within this session.
+    CacheStorageStore* cache_storage_store() const { return m_cache_storage_store.ptr(); }
+    bool install_cache_storage_store(NonnullOwnPtr<CacheStorageStore>);
     OwnPtr<BlobURLStore> blob_url_store;
     OwnPtr<HSTSStore> hsts_store;
     OwnPtr<PermissionManager> permission_manager;
@@ -67,6 +70,7 @@ public:
 private:
     explicit BrowsingSession(IsPrivate);
 
+    OwnPtr<CacheStorageStore> m_cache_storage_store;
     u64 m_id { 0 };
     IsPrivate m_is_private { IsPrivate::No };
 };
