@@ -1,3 +1,5 @@
+import { onInterfaceLanguageChange, t } from "../l10n.js";
+
 const customDnsSettings = document.querySelector("#custom-dns-settings");
 const dnsForciblyEnabled = document.querySelector("#dns-forcibly-enabled");
 const dnsProxyNote = document.querySelector("#dns-proxy-note");
@@ -17,6 +19,19 @@ function loadSettings(settings) {
 
     DNS_SETTINGS = settings.dnsSettings || {};
     loadDnsSettings();
+}
+
+function updateProxyNote() {
+    const proxy = DNS_SETTINGS.proxy;
+    dnsProxyNote.textContent = proxy.resolvesAllHostnames
+        ? t(
+              "The proxy at {0} resolves hostnames itself, so these settings do not apply to web requests and DNSSEC cannot be validated.",
+              [proxy.server]
+          )
+        : t(
+              "The proxy at {0} resolves hostnames itself, so these settings do not apply to requests sent through it and DNSSEC cannot be validated for them.",
+              [proxy.server]
+          );
 }
 
 function loadDnsSettings() {
@@ -59,9 +74,7 @@ function loadDnsSettings() {
     const proxy = DNS_SETTINGS.proxy;
 
     if (proxy) {
-        dnsProxyNote.textContent = proxy.resolvesAllHostnames
-            ? `The proxy at ${proxy.server} resolves hostnames itself, so these settings do not apply to web requests and DNSSEC cannot be validated.`
-            : `The proxy at ${proxy.server} resolves hostnames itself, so these settings do not apply to requests sent through it and DNSSEC cannot be validated for them.`;
+        updateProxyNote();
         dnsProxyNote.classList.remove("hidden");
 
         if (proxy.resolvesAllHostnames) {
@@ -111,6 +124,10 @@ dnsServer.addEventListener("change", updateDnsSettings);
 dnsPort.addEventListener("change", updateDnsSettings);
 dnsType.addEventListener("change", updateDnsSettings);
 dnssecToggle.addEventListener("change", updateDnsSettings);
+
+onInterfaceLanguageChange(() => {
+    if (DNS_SETTINGS.proxy) updateProxyNote();
+});
 
 document.addEventListener("WebUIMessage", event => {
     if (event.detail.name === "loadSettings") {

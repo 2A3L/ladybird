@@ -25,9 +25,11 @@ RE_LINE_COMMENT = re.compile(r"(^|\s)//.*$", re.MULTILINE)
 
 CONTROL_SOURCES = "controls"
 PAGE_SOURCES = "pages"
+WEBVIEW_SOURCES = "webview"
 SOURCES: Dict[str, List[Tuple[Path, Set[str]]]] = {
     CONTROL_SOURCES: [(Path("UI/Qt"), {".cpp", ".h", ".mm"}), (Path("Libraries/LibWebView"), {".cpp", ".h", ".mm"})],
     PAGE_SOURCES: [(Path("Base/res/ladybird/about-pages"), {".html", ".js"})],
+    WEBVIEW_SOURCES: [(Path("Libraries/LibWebView"), {".cpp", ".h", ".mm"})],
 }
 
 # Where the text of each file is used.
@@ -36,7 +38,8 @@ SURFACES: Dict[str, List[str]] = {
     "actions": [CONTROL_SOURCES],
     "widgets": [CONTROL_SOURCES],
     "qt": [CONTROL_SOURCES],
-    "settings": [PAGE_SOURCES],
+    # The settings page shows the titles, descriptions and messages that LibWebView gives it.
+    "settings": [PAGE_SOURCES, WEBVIEW_SOURCES],
     "pages": [PAGE_SOURCES],
 }
 

@@ -1,3 +1,6 @@
+import { onInterfaceLanguageChange, t } from "../l10n.js";
+import { normalizeSearchText } from "./search-text.js";
+
 const configFilter = document.querySelector("#config-filter");
 const configList = document.querySelector("#config-list");
 
@@ -64,20 +67,26 @@ function createControl(variable) {
     return input;
 }
 
+// The titles and descriptions come from the browser in English. The English text stays searchable.
+function setRowText(row, title, description, variable) {
+    title.textContent = t(variable.title);
+    description.textContent = t(variable.description);
+    row.dataset.filterText = normalizeSearchText(
+        `${title.textContent} ${description.textContent} ${variable.title} ${variable.description}`
+    );
+}
+
 function createRow(variable) {
     const row = document.createElement("div");
     row.classList.add("card-group");
     row.classList.add("config-row");
     row.classList.add("inline-container");
     row.classList.add("control-row");
-    row.dataset.filterText = `${variable.title} ${variable.description}`.toLowerCase();
 
     const title = document.createElement("p");
-    title.textContent = variable.title;
-
     const description = document.createElement("p");
     description.classList.add("description");
-    description.textContent = variable.description;
+    setRowText(row, title, description, variable);
 
     const label = document.createElement("label");
     label.htmlFor = variable.name;
@@ -88,7 +97,7 @@ function createRow(variable) {
 }
 
 function applyFilter() {
-    const filter = configFilter.value.trim().toLowerCase();
+    const filter = normalizeSearchText(configFilter.value.trim());
 
     document.querySelectorAll(".config-row").forEach(row => {
         row.classList.toggle("hidden", filter.length !== 0 && !row.dataset.filterText.includes(filter));
@@ -127,6 +136,14 @@ function loadConfigVariables(settings) {
 }
 
 configFilter.addEventListener("input", applyFilter);
+
+onInterfaceLanguageChange(() => {
+    for (const variable of CONFIG_VARIABLES.values()) {
+        const row = document.getElementById(variable.name)?.closest(".config-row");
+        if (row) setRowText(row, ...row.querySelectorAll("label > p"), variable);
+    }
+    applyFilter();
+});
 
 document.addEventListener("WebUIMessage", event => {
     if (event.detail.name === "loadSettings") {

@@ -1,4 +1,5 @@
 import { getByteFormatter } from "../../utils.js";
+import { onInterfaceLanguageChange, t } from "../l10n.js";
 import { registerDialogDeepLink } from "./dialog-deep-link.js";
 
 const byteFormatter = getByteFormatter(unit => {
@@ -24,6 +25,8 @@ const clearBrowsingDataTimeRange = document.querySelector("#clear-browsing-data-
 
 const globalPrivacyControlToggle = document.querySelector("#global-privacy-control-toggle");
 
+let browsingDataSizes = null;
+
 function loadSettings(settings) {
     if (Object.hasOwn(settings, "globalPrivacyControl")) {
         globalPrivacyControlToggle.checked = settings.globalPrivacyControl;
@@ -31,12 +34,17 @@ function loadSettings(settings) {
 }
 
 function updateBrowsingDataSizes(sizes) {
+    browsingDataSizes = sizes;
     const totalSize = sizes.totalCacheSize + sizes.totalSiteDataSize;
 
-    browsingDataTotalSize.innerText = `Your browsing data is currently using ${byteFormatter.formatBytes(totalSize)} of disk space`;
+    browsingDataTotalSize.innerText = t("Your browsing data is currently using {0} of disk space", [
+        byteFormatter.formatBytes(totalSize),
+    ]);
 
-    clearBrowsingDataCachedFilesSize.innerText = ` (remove ${byteFormatter.formatBytes(sizes.cacheSizeSinceRequestedTime)})`;
-    clearBrowsingDataSiteDataSize.innerText = ` (remove ${byteFormatter.formatBytes(sizes.siteDataSizeSinceRequestedTime)})`;
+    const cachedFilesSize = byteFormatter.formatBytes(sizes.cacheSizeSinceRequestedTime);
+    const siteDataSize = byteFormatter.formatBytes(sizes.siteDataSizeSinceRequestedTime);
+    clearBrowsingDataCachedFilesSize.innerText = ` ${t("(remove {0})", [cachedFilesSize])}`;
+    clearBrowsingDataSiteDataSize.innerText = ` ${t("(remove {0})", [siteDataSize])}`;
 }
 
 function computeTimeRange() {
@@ -113,6 +121,10 @@ clearBrowsingDataRemoveData.addEventListener("click", () => {
 
 globalPrivacyControlToggle.addEventListener("change", () => {
     ladybird.sendMessage("setGlobalPrivacyControl", globalPrivacyControlToggle.checked);
+});
+
+onInterfaceLanguageChange(() => {
+    if (browsingDataSizes) updateBrowsingDataSizes(browsingDataSizes);
 });
 
 document.addEventListener("WebUILoaded", estimateBrowsingDataSizes);

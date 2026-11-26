@@ -1,3 +1,4 @@
+import { onInterfaceLanguageChange, t } from "../l10n.js";
 import { registerDialogDeepLink } from "./dialog-deep-link.js";
 
 const languagesAdd = document.querySelector("#languages-add");
@@ -61,7 +62,7 @@ function showLanguages() {
         const moveUp = document.createElement("button");
         moveUp.className = "dialog-button";
         moveUp.innerHTML = upwardArrowSVG;
-        moveUp.title = "Move up";
+        moveUp.title = t("Move up");
 
         if (index === 0) {
             moveUp.disabled = true;
@@ -74,7 +75,7 @@ function showLanguages() {
         const moveDown = document.createElement("button");
         moveDown.className = "dialog-button";
         moveDown.innerHTML = downwardArrowSVG;
-        moveDown.title = "Move down";
+        moveDown.title = t("Move down");
 
         if (index === LANGUAGES.length - 1) {
             moveDown.disabled = true;
@@ -87,7 +88,7 @@ function showLanguages() {
         const remove = document.createElement("button");
         remove.className = "dialog-button";
         remove.innerHTML = "&times;";
-        remove.title = "Remove";
+        remove.title = t("Remove");
 
         if (LANGUAGES.length <= 1) {
             remove.disabled = true;
@@ -152,6 +153,12 @@ registerDialogDeepLink({
 
 languagesSettings.addEventListener("click", () => {
     location.hash = "editLanguages";
+});
+
+onInterfaceLanguageChange(() => {
+    if (languagesDialog.open) {
+        showLanguages();
+    }
 });
 
 document.addEventListener("WebUILoaded", () => {
