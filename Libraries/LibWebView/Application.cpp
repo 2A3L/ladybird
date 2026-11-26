@@ -47,6 +47,8 @@
 #include <LibWebCommon/WebDriver/TimeoutsConfiguration.h>
 #include <LibWebView/Application.h>
 #include <LibWebView/BlobURLStore.h>
+#include <LibWebView/CacheStorageLeaseRegistry.h>
+#include <LibWebView/CacheStorageStore.h>
 #include <LibWebView/CompositorClient.h>
 #include <LibWebView/CompositorPresentationClient.h>
 #include <LibWebView/CookieJar.h>
@@ -2860,6 +2862,15 @@ NonnullRefPtr<Core::Promise<Application::BrowsingDataSizes>> Application::estima
 
             sizes.site_data_size_since_requested_time = cookie_sizes.since_requested_time + storage_sizes.since_requested_time;
             sizes.total_site_data_size = cookie_sizes.total + storage_sizes.total;
+            if (auto* cache_storage = m_default_session->cache_storage_store()) {
+                auto cache_storage_sizes = cache_storage->estimate_accessed_since(since);
+                if (cache_storage_sizes.is_error()) {
+                    warnln("Unable to estimate Cache Storage size: {}", cache_storage_sizes.error());
+                } else {
+                    sizes.site_data_size_since_requested_time += cache_storage_sizes.value().since_requested_time;
+                    sizes.total_site_data_size += cache_storage_sizes.value().total;
+                }
+            }
 
             promise->resolve(sizes);
         })
@@ -2873,7 +2884,19 @@ NonnullRefPtr<Core::Promise<Application::BrowsingDataSizes>> Application::estima
 NonnullRefPtr<Core::Promise<Empty>> Application::clear_browsing_data(ClearBrowsingDataOptions const& options)
 {
     RefPtr<Core::Promise<Empty>> promise;
+    Optional<Error> cache_storage_error;
     bool did_change_history = false;
+
+    if (options.delete_site_data == ClearBrowsingDataOptions::Delete::Yes) {
+        auto clear_cache_storage = [&](BrowsingSession& session) {
+            auto result = CacheStorageLeaseRegistry::the().clear_accessed_since(session, options.since);
+            if (result.is_error() && !cache_storage_error.has_value())
+                cache_storage_error = result.release_error();
+        };
+        clear_cache_storage(*m_default_session);
+        if (auto private_session = m_private_session.strong_ref())
+            clear_cache_storage(*private_session);
+    }
 
     if (options.delete_cached_files == ClearBrowsingDataOptions::Delete::Yes) {
         promise = m_request_server_manager->clear_cache(options.since);
@@ -2914,10 +2937,21 @@ NonnullRefPtr<Core::Promise<Empty>> Application::clear_browsing_data(ClearBrowsi
 
     if (!promise) {
         promise = Core::Promise<Empty>::construct();
-
-        Core::deferred_invoke([promise]() {
-            promise->resolve({});
+        Core::deferred_invoke([promise, error = move(cache_storage_error)]() mutable {
+            if (error.has_value())
+                promise->reject(error.release_value());
+            else
+                promise->resolve({});
         });
+    } else if (cache_storage_error.has_value()) {
+        auto completion = Core::Promise<Empty>::construct();
+        promise->when_resolved([completion, error = cache_storage_error.release_value()](Empty&) mutable {
+                   completion->reject(move(error));
+               })
+            .when_rejected([completion](Error& error) {
+                completion->reject(move(error));
+            });
+        return completion;
     }
 
     return promise.release_nonnull();

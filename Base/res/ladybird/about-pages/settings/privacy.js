@@ -16,6 +16,8 @@ const browsingDataTotalSize = document.querySelector("#browsing-data-total-size"
 const clearBrowsingDataCachedFiles = document.querySelector("#clear-browsing-data-cached-files");
 const clearBrowsingDataCachedFilesSize = document.querySelector("#clear-browsing-data-cached-files-size");
 const clearBrowsingDataDownloadHistory = document.querySelector("#clear-browsing-data-download-history");
+const clearBrowsingDataError = document.querySelector("#clear-browsing-data-error");
+const clearBrowsingDataPageError = document.querySelector("#clear-browsing-data-page-error");
 const clearBrowsingDataHistory = document.querySelector("#clear-browsing-data-history");
 const clearBrowsingDataRemoveData = document.querySelector("#clear-browsing-data-remove-data");
 const clearBrowsingDataSiteData = document.querySelector("#clear-browsing-data-site-data");
@@ -23,6 +25,9 @@ const clearBrowsingDataSiteDataSize = document.querySelector("#clear-browsing-da
 const clearBrowsingDataTimeRange = document.querySelector("#clear-browsing-data-time-range");
 
 const globalPrivacyControlToggle = document.querySelector("#global-privacy-control-toggle");
+let clearingBrowsingData = false;
+// Clears whose dialog was closed before the browser answered; their replies must not affect a reopened dialog.
+let abandonedClearCount = 0;
 
 function loadSettings(settings) {
     if (Object.hasOwn(settings, "globalPrivacyControl")) {
@@ -86,11 +91,20 @@ clearBrowsingDataTimeRange.addEventListener("change", () => {
 
 function setRemoveDataEnabledState() {
     clearBrowsingDataRemoveData.disabled =
-        !clearBrowsingDataCachedFiles.checked &&
-        !clearBrowsingDataHistory.checked &&
-        !clearBrowsingDataDownloadHistory.checked &&
-        !clearBrowsingDataSiteData.checked;
+        clearingBrowsingData ||
+        (!clearBrowsingDataCachedFiles.checked &&
+            !clearBrowsingDataHistory.checked &&
+            !clearBrowsingDataDownloadHistory.checked &&
+            !clearBrowsingDataSiteData.checked);
 }
+
+browsingDataSettingsDialog.addEventListener("close", () => {
+    if (clearingBrowsingData) {
+        clearingBrowsingData = false;
+        ++abandonedClearCount;
+    }
+    setRemoveDataEnabledState();
+});
 
 clearBrowsingDataCachedFiles.addEventListener("change", setRemoveDataEnabledState);
 clearBrowsingDataHistory.addEventListener("change", setRemoveDataEnabledState);
@@ -99,6 +113,10 @@ clearBrowsingDataSiteData.addEventListener("change", setRemoveDataEnabledState);
 
 clearBrowsingDataRemoveData.addEventListener("click", () => {
     const since = computeTimeRange();
+    clearingBrowsingData = true;
+    clearBrowsingDataError.hidden = true;
+    clearBrowsingDataPageError.hidden = true;
+    setRemoveDataEnabledState();
 
     ladybird.sendMessage("clearBrowsingData", {
         since: since?.epochMilliseconds,
@@ -107,8 +125,6 @@ clearBrowsingDataRemoveData.addEventListener("click", () => {
         downloadHistory: clearBrowsingDataDownloadHistory.checked,
         siteData: clearBrowsingDataSiteData.checked,
     });
-
-    browsingDataSettingsDialog.close();
 });
 
 globalPrivacyControlToggle.addEventListener("change", () => {
@@ -122,7 +138,24 @@ document.addEventListener("WebUIMessage", event => {
         loadSettings(event.detail.data);
     } else if (event.detail.name === "estimatedBrowsingDataSizes") {
         updateBrowsingDataSizes(event.detail.data);
-    } else if (event.detail.name === "clearedBrowsingData") {
+    } else if (event.detail.name === "clearedBrowsingData" || event.detail.name === "clearBrowsingDataFailed") {
+        const isCurrentClear = abandonedClearCount === 0;
+        if (isCurrentClear) {
+            clearingBrowsingData = false;
+            setRemoveDataEnabledState();
+        } else {
+            --abandonedClearCount;
+        }
+        if (event.detail.name === "clearedBrowsingData") {
+            if (isCurrentClear) {
+                browsingDataSettingsDialog.close();
+            }
+        } else {
+            const error =
+                isCurrentClear && browsingDataSettingsDialog.open ? clearBrowsingDataError : clearBrowsingDataPageError;
+            error.textContent = "Some selected data may not have been removed. Try again.";
+            error.hidden = false;
+        }
         estimateBrowsingDataSizes();
     }
 });

@@ -723,8 +723,10 @@ void SettingsUI::clear_browsing_data(JsonValue const& options)
             if (auto self = weak_this.strong_ref())
                 self->async_send_message("clearedBrowsingData"sv, {});
         })
-        .when_rejected([](Error const& error) {
+        .when_rejected([weak_this = make_weak_ptr<SettingsUI>()](Error const& error) {
             dbgln("Failed to clear browser data: {}", error);
+            if (auto self = weak_this.strong_ref())
+                self->async_send_message("clearBrowsingDataFailed"sv, {});
         });
 }
 
