@@ -12,6 +12,8 @@ ladybird_test_suite(LibWeb)
 
 set(TEST_SOURCES
     TestBlobBytes.cpp
+    TestCacheBodyReader.cpp
+    TestCacheSnapshot.cpp
     TestContentBlocker.cpp
     TestCSSDecodeBytes.cpp
     TestCSSIDSpeed.cpp

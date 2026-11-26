@@ -24,6 +24,7 @@ class CanonicalBrowsingContext;
 class CanonicalBrowsingContextGroup;
 class CanonicalDocument;
 class CanonicalDocumentState;
+class CacheStorageStore;
 class CanonicalEnvironmentSettingsObject;
 class CanonicalWindowEnvironmentSettingsObject;
 class CanonicalWorkerEnvironmentSettingsObject;

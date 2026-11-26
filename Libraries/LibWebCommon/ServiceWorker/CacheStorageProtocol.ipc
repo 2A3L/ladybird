@@ -1,0 +1,103 @@
+// Copyright (c) 2026-present, the Ladybird developers.
+//
+// SPDX-License-Identifier: BSD-2-Clause
+
+#include <LibWebCommon/ServiceWorker/CacheStorageProtocolTypes.h>
+
+enum Web::ServiceWorker::CacheStorageIPC::StorageError : u8 {
+    Denied,
+    QuotaExceeded,
+    Missing,
+    StaleRevision,
+    Unavailable,
+}
+
+struct Web::ServiceWorker::CacheStorageIPC::Open {
+    Web::ServiceWorker::CacheStorageIPC::Name name;
+}
+
+struct Web::ServiceWorker::CacheStorageIPC::Lookup {
+    Web::ServiceWorker::CacheStorageIPC::Name name;
+}
+
+struct Web::ServiceWorker::CacheStorageIPC::List {
+}
+
+struct Web::ServiceWorker::CacheStorageIPC::Delete {
+    Web::ServiceWorker::CacheStorageIPC::Name name;
+}
+
+struct Web::ServiceWorker::CacheStorageIPC::Read {
+    Web::ServiceWorker::CacheStorageIPC::CacheId id;
+}
+
+struct Web::ServiceWorker::CacheStorageIPC::Commit {
+    Web::ServiceWorker::CacheStorageIPC::CacheId id;
+    Web::ServiceWorker::CacheStorageIPC::Revision expected_revision;
+    Web::ServiceWorker::CacheStorageIPC::Snapshot snapshot;
+}
+
+struct Web::ServiceWorker::CacheStorageIPC::Release {
+    Web::ServiceWorker::CacheStorageIPC::CacheId id;
+}
+
+struct Web::ServiceWorker::CacheStorageIPC::Has {
+    Web::ServiceWorker::CacheStorageIPC::Name name;
+}
+
+// Return leases for one ordered snapshot so that deleting and reopening a name cannot change its identity.
+struct Web::ServiceWorker::CacheStorageIPC::Enumerate {
+}
+
+variant Web::ServiceWorker::CacheStorageIPC::Request {
+    Open Web::ServiceWorker::CacheStorageIPC::Open,
+    Lookup Web::ServiceWorker::CacheStorageIPC::Lookup,
+    List Web::ServiceWorker::CacheStorageIPC::List,
+    Delete Web::ServiceWorker::CacheStorageIPC::Delete,
+    Read Web::ServiceWorker::CacheStorageIPC::Read,
+    Commit Web::ServiceWorker::CacheStorageIPC::Commit,
+    Release Web::ServiceWorker::CacheStorageIPC::Release,
+    Has Web::ServiceWorker::CacheStorageIPC::Has,
+    Enumerate Web::ServiceWorker::CacheStorageIPC::Enumerate,
+}
+
+struct Web::ServiceWorker::CacheStorageIPC::Opened {
+    Web::ServiceWorker::CacheStorageIPC::CacheId id;
+}
+
+struct Web::ServiceWorker::CacheStorageIPC::Found {
+    Optional<Web::ServiceWorker::CacheStorageIPC::CacheId> id;
+}
+
+struct Web::ServiceWorker::CacheStorageIPC::Deleted {
+    bool deleted;
+}
+
+struct Web::ServiceWorker::CacheStorageIPC::Loaded {
+    Web::ServiceWorker::CacheStorageIPC::Revision revision;
+    Web::ServiceWorker::CacheStorageIPC::Snapshot snapshot;
+}
+
+struct Web::ServiceWorker::CacheStorageIPC::Committed {
+    Web::ServiceWorker::CacheStorageIPC::Revision revision;
+}
+
+struct Web::ServiceWorker::CacheStorageIPC::Released {
+}
+
+struct Web::ServiceWorker::CacheStorageIPC::Exists {
+    bool exists;
+}
+
+variant Web::ServiceWorker::CacheStorageIPC::Reply {
+    Error Web::ServiceWorker::CacheStorageIPC::StorageError,
+    Opened Web::ServiceWorker::CacheStorageIPC::Opened,
+    Found Web::ServiceWorker::CacheStorageIPC::Found,
+    Names Web::ServiceWorker::CacheStorageIPC::Names,
+    Deleted Web::ServiceWorker::CacheStorageIPC::Deleted,
+    Loaded Web::ServiceWorker::CacheStorageIPC::Loaded,
+    Committed Web::ServiceWorker::CacheStorageIPC::Committed,
+    Released Web::ServiceWorker::CacheStorageIPC::Released,
+    Exists Web::ServiceWorker::CacheStorageIPC::Exists,
+    CacheIds Web::ServiceWorker::CacheStorageIPC::CacheIds,
+}
