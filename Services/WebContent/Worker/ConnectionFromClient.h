@@ -83,6 +83,7 @@ private:
     virtual void blob_url_entry_removed(Utf16String url) override;
     virtual void broadcast_channel_message(Web::HTML::BroadcastChannelMessage message) override;
     virtual void compositor_process_reconnected(u64 compositor_generation) override;
+    virtual void cache_storage_reply(Web::ServiceWorker::CacheStorageIPC::RequestId, Web::ServiceWorker::CacheStorageIPC::Reply) override;
 
     GC::Root<PageHost> m_page_host;
 

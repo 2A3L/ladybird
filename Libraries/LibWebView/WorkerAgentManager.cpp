@@ -10,8 +10,11 @@
 #include <LibIPC/File.h>
 #include <LibURL/Parser.h>
 #include <LibWebView/Application.h>
+#include <LibWebView/CacheStoragePartition.h>
+#include <LibWebView/CanonicalDocument.h>
 #include <LibWebView/CanonicalEnvironmentSettingsObject.h>
 #include <LibWebView/CanonicalNavigable.h>
+#include <LibWebView/CanonicalWindow.h>
 #include <LibWebView/HelperProcess.h>
 #include <LibWebView/PermissionManager.h>
 #include <LibWebView/RequestServerManager.h>
@@ -28,6 +31,18 @@ WorkerAgentManager& WorkerAgentManager::the()
 {
     static auto& manager = *new WorkerAgentManager;
     return manager;
+}
+
+void WorkerAgentManager::revoke_invalid_cache_storage_grants()
+{
+    if (!m_has_cache_storage_grants)
+        return;
+    bool any_grants = false;
+    for (auto& client : m_clients) {
+        client->revoke_invalid_cache_storage_grant();
+        any_grants |= client->has_cache_storage_grant();
+    }
+    m_has_cache_storage_grants = any_grants;
 }
 
 // https://html.spec.whatwg.org/multipage/workers.html#dom-sharedworker
@@ -190,12 +205,21 @@ void WorkerAgentManager::register_dedicated_worker(WebContentClient& owner_clien
 {
     if (!outside_settings.has_value())
         return;
+    auto* page = owner_client.page(page_id);
+    Optional<CacheStorageWorkerGrant> grant;
+    if (page && owner_client.session().cache_storage_store()) {
+        auto document = page->document_with_hosted_environment(outside_settings->id());
+        auto key = page->cache_storage_partition_key_for_active_environment(*outside_settings);
+        if (document.has_value() && key.has_value() && &document->relevant_global_object().relevant_settings_object() == &*outside_settings)
+            grant = CacheStorageWorkerGrant { .partition_key = key.release_value(), .parent_page = *page, .parent_document = *document, .parent_worker = {}, .parent_worker_environment_id = {} };
+    }
     DedicatedWorkerOwner owner {
         .is_private = owner_client.is_private(),
         .process = owner_client,
         .request_server_site_bindings = owner_client.request_server_site_bindings(),
         .local_file_roots = owner_client.local_file_roots(),
         .has_cross_site_ancestor = page_environment_has_cross_site_ancestor(owner_client, page_id, *outside_settings),
+        .cache_storage_grant = move(grant),
     };
     register_dedicated_worker(owner, *outside_settings, move(request), move(worker_transport));
 }
@@ -205,12 +229,19 @@ void WorkerAgentManager::register_dedicated_worker(WebWorkerClient& owner_client
     auto host = owner_client.host();
     if (!outside_settings.has_value() || !host)
         return;
+    auto session = owner_client.session();
+    Optional<CacheStorageWorkerGrant> grant;
+    if (session && session->cache_storage_store() && &host->session() == session.ptr()) {
+        if (auto key = owner_client.cache_storage_partition_grant(*outside_settings); key.has_value())
+            grant = CacheStorageWorkerGrant { .partition_key = key.release_value(), .parent_page = {}, .parent_document = {}, .parent_worker = owner_client, .parent_worker_environment_id = outside_settings->id() };
+    }
     DedicatedWorkerOwner owner {
         .is_private = owner_client.is_private(),
         .process = *host,
         .request_server_site_bindings = owner_client.request_server_site_bindings(),
         .local_file_roots = owner_client.local_file_roots(),
         .has_cross_site_ancestor = static_cast<CanonicalWorkerEnvironmentSettingsObject const&>(*outside_settings).has_cross_site_ancestor(),
+        .cache_storage_grant = move(grant),
     };
     register_dedicated_worker(owner, *outside_settings, move(request), move(worker_transport));
 }
@@ -238,7 +269,10 @@ void WorkerAgentManager::register_dedicated_worker(DedicatedWorkerOwner const& o
     }
 
     auto client = client_or_error.release_value();
-    start_worker(*client, move(request), outside_settings, owner.has_cross_site_ancestor, owner.local_file_roots, false);
+    auto grant = owner.cache_storage_grant;
+    if (grant.has_value() && !cache_storage_dedicated_worker_partition_grant(request.url, outside_settings, grant->partition_key).has_value())
+        grant.clear();
+    start_worker(*client, move(request), outside_settings, owner.has_cross_site_ancestor, owner.local_file_roots, false, move(grant));
 }
 
 bool WorkerAgentManager::page_environment_has_cross_site_ancestor(WebContentClient& client, Web::PageId page_id, CanonicalEnvironmentSettingsObject const& environment)
@@ -289,7 +323,7 @@ ErrorOr<NonnullRefPtr<WebWorkerClient>> WorkerAgentManager::create_worker_client
     return client;
 }
 
-void WorkerAgentManager::start_worker(WebWorkerClient& client, Web::HTML::WorkerAgentStartRequest request, CanonicalEnvironmentSettingsObject const& outside_settings, bool has_cross_site_ancestor, Vector<LocalFileRoot> const& owner_local_file_roots, bool has_process_to_itself)
+void WorkerAgentManager::start_worker(WebWorkerClient& client, Web::HTML::WorkerAgentStartRequest request, CanonicalEnvironmentSettingsObject const& outside_settings, bool has_cross_site_ancestor, Vector<LocalFileRoot> const& owner_local_file_roots, bool has_process_to_itself, Optional<CacheStorageWorkerGrant> cache_storage_grant)
 {
     // https://html.spec.whatwg.org/multipage/workers.html#set-up-a-worker-environment-settings-object
     // 3. Let origin be a unique opaque origin if worker global scope's url's scheme is "data"; otherwise outside
@@ -308,7 +342,7 @@ void WorkerAgentManager::start_worker(WebWorkerClient& client, Web::HTML::Worker
 
     // NB: A worker reads local files as its owner does. A worker of a file origin that local file content starts is
     //     local file content too.
-    client.set_inside_settings(move(inside_settings), inside_origin.is_file_origin() ? owner_local_file_roots : Vector<LocalFileRoot> {});
+    client.set_inside_settings(move(inside_settings), inside_origin.is_file_origin() ? owner_local_file_roots : Vector<LocalFileRoot> {}, move(cache_storage_grant));
 
     // NB: The worker's URL was parsed with its blob URL entry, so revoking the URL must not stop the worker from
     //     fetching its script.

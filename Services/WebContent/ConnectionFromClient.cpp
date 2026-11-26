@@ -100,6 +100,7 @@
 #include <LibWeb/Platform/FontPlugin.h>
 #include <LibWeb/Platform/RemoteImageCodecPlugin.h>
 #include <LibWeb/Selection/Selection.h>
+#include <LibWeb/ServiceWorker/CacheStorageConnection.h>
 #include <LibWeb/UIEvents/InputTypes.h>
 #include <LibWebCommon/HTML/SelectedFile.h>
 #include <LibWebCommon/Infra/Strings.h>
@@ -619,6 +620,12 @@ void ConnectionFromClient::set_site_compatibility_data(JsonValue data)
         return;
     }
     Web::set_site_compatibility_data(parsed_data.release_value());
+}
+
+void ConnectionFromClient::set_cache_storage_hub_enabled(bool enabled)
+{
+    // The process's workers run on its threads and share this setting with its pages.
+    Web::ServiceWorker::set_cache_storage_hub_enabled(enabled);
 }
 
 void ConnectionFromClient::set_permission_snapshot(Web::Permissions::PermissionSnapshot snapshot)
@@ -1603,6 +1610,13 @@ void ConnectionFromClient::storage_area_write_refused(Web::StorageAPI::StorageAr
 void ConnectionFromClient::storage_area_reset(Web::StorageAPI::StorageAreaId area_id, Vector<Utf16String> keys, Vector<Utf16String> values)
 {
     Web::StorageAPI::storage_area_did_reset(area_id, move(keys), move(values));
+}
+
+void ConnectionFromClient::cache_storage_reply(Web::PageId page_id, Web::ServiceWorker::CacheStorageIPC::RequestId request_id, Web::ServiceWorker::CacheStorageIPC::Reply reply)
+{
+    // A reply may arrive after the page has closed.
+    if (auto page_client = m_page_host->page(page_id); page_client.has_value())
+        page_client->did_receive_cache_storage_reply(request_id, move(reply));
 }
 
 void ConnectionFromClient::inspect_dom_node(Web::PageId page_id, WebView::DOMNodeProperties::Type property_type, Web::UniqueNodeID node_id, Optional<Web::CSS::PseudoElement> pseudo_element, JsonValue options_value)

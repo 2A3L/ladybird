@@ -27,6 +27,7 @@
 #include <LibWebView/ViewImplementation.h>
 #include <LibWebView/WebContentClient.h>
 #include <LibWebView/WebDriverBiDi.h>
+#include <LibWebView/WorkerAgentManager.h>
 
 namespace WebView {
 
@@ -1360,6 +1361,7 @@ void CanonicalNavigable::set_hosted_state(Web::HTML::HostedNavigableState state)
 void CanonicalNavigable::did_lose_active_document()
 {
     active_document().set_host(nullptr);
+    WorkerAgentManager::the().revoke_invalid_cache_storage_grants();
     if (!m_hosted_state.has_value())
         return;
     m_hosted_state->compositor_context_id = {};
@@ -1639,6 +1641,7 @@ void CanonicalNavigable::did_commit_navigation(CanonicalSessionHistoryEntry& ent
         document->make_active();
         if (!document->host())
             document->set_host(host);
+        WorkerAgentManager::the().revoke_invalid_cache_storage_grants();
         // NB: A browsing context group switch discarded the previous document's browsing context. It is removed from
         //     its group once the switch is committed, as the navigation can be canceled until then.
         if (is_top_level_traversable() && &document->browsing_context() != &previous_document->browsing_context()) {

@@ -55,6 +55,12 @@ bool PageHost::is_connection_open() const
     return m_client.is_open();
 }
 
+ErrorOr<void> PageHost::send_cache_storage_request(Web::HTML::EnvironmentId const& environment_id, Web::ServiceWorker::CacheStorageIPC::RequestId request_id, Web::ServiceWorker::CacheStorageIPC::Request&& request)
+{
+    auto message = TRY(Messages::WebWorkerClient::CacheStorageRequest::static_encode(environment_id, request_id, request));
+    return m_client.post_message(message);
+}
+
 Web::DevicePixelRect PageHost::screen_rect() const
 {
     return {};

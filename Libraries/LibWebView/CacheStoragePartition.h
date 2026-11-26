@@ -9,12 +9,23 @@
 #include <AK/Optional.h>
 #include <AK/Span.h>
 #include <AK/String.h>
+#include <AK/WeakPtr.h>
 #include <LibURL/Origin.h>
 #include <LibURL/URL.h>
+#include <LibWebCommon/HTML/Scripting/EnvironmentId.h>
 #include <LibWebView/Export.h>
 #include <LibWebView/Forward.h>
 
 namespace WebView {
+
+// Authority is derived in Hub and remains tied to a live canonical creator.
+struct CacheStorageWorkerGrant {
+    String partition_key;
+    WeakPtr<WebContentPage> parent_page;
+    WeakPtr<CanonicalDocument> parent_document;
+    WeakPtr<WebWorkerClient> parent_worker;
+    Optional<Web::HTML::EnvironmentId> parent_worker_environment_id;
+};
 
 // Empty chains, opaque origins, file and internal resource origins are denied even where
 // secure-context trustworthiness treats file and resource origins as potentially trustworthy.
