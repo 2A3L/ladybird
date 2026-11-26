@@ -304,6 +304,7 @@ void Cache::read_snapshot(GC::Ref<WebIDL::Promise> promise, GC::Ref<SnapshotCall
     if (!cache_storage_promise_is_live(promise)) {
         if (staging)
             staging->discard();
+        queue_cache_storage_rejection(promise, IPC::StorageError::Unavailable);
         return;
     }
 
@@ -312,8 +313,10 @@ void Cache::read_snapshot(GC::Ref<WebIDL::Promise> promise, GC::Ref<SnapshotCall
             if (staging)
                 staging->discard();
         };
-        if (!cache_storage_promise_is_live(promise))
+        if (!cache_storage_promise_is_live(promise)) {
+            queue_cache_storage_rejection(promise, IPC::StorageError::Unavailable);
             return;
+        }
         auto owner = self.m_owner.ptr();
         if (!cache_storage_environment_is_live(owner)) {
             queue_cache_storage_rejection(promise, IPC::StorageError::Unavailable);
@@ -351,16 +354,14 @@ void Cache::read_snapshot(GC::Ref<WebIDL::Promise> promise, GC::Ref<SnapshotCall
     }
 }
 
-void Cache::settle_cache_batch(JS::Realm& realm, GC::Ref<WebIDL::Promise> promise, BatchResult result_kind, WebIDL::ExceptionOr<bool> result) const
+void Cache::settle_cache_batch(JS::Realm& realm, GC::Ref<WebIDL::Promise> promise, BatchResult result_kind, WebIDL::ExceptionOr<bool> result)
 {
-    // A renderer-local cache settles its promise even once the owner is gone, as it always has.
+    // The operation is complete, so its promise settles with its result even once the owner is gone.
     HTML::queue_a_task(
         HTML::Task::Source::DOMManipulation,
         HTML::relevant_settings_object(promise->promise()).responsible_event_loop(),
         {},
-        GC::create_function(GC::Heap::the(), GC::captures(realm, promise, result_kind, move(result), m_remote_id.has_value()), [](auto& realm, auto& promise, auto& result_kind, auto& result, auto& shared_cache) {
-            if (shared_cache && !cache_storage_promise_is_live(promise))
-                return;
+        GC::create_function(GC::Heap::the(), GC::captures(realm, promise, result_kind, move(result)), [](auto& realm, auto& promise, auto& result_kind, auto& result) {
             HTML::TemporaryExecutionContext context { realm, HTML::TemporaryExecutionContext::CallbacksEnabled::Yes };
             if (result.is_error())
                 WebIDL::reject_promise_with_exception(promise, result.release_error());
@@ -418,14 +419,14 @@ void Cache::run_cache_batch(JS::Realm& realm, GC::Ref<BatchOperations> operation
                         if (staging)
                             staging->discard();
                     };
-                    if (!cache_storage_promise_is_live(promise))
-                        return;
-                    if (!cache_storage_environment_is_live(self.m_owner.ptr())) {
-                        queue_cache_storage_rejection(promise, IPC::StorageError::Unavailable);
+                    // The Hub applied the operation, so its promise settles with the result even if the promise's
+                    // realm or the cache's owner has gone away since.
+                    if (reply.has<IPC::Committed>()) {
+                        settle_cache_batch(realm, promise, result_kind, removed);
                         return;
                     }
-                    if (reply.has<IPC::Committed>()) {
-                        self.settle_cache_batch(realm, promise, result_kind, removed);
+                    if (!cache_storage_promise_is_live(promise) || !cache_storage_environment_is_live(self.m_owner.ptr())) {
+                        queue_cache_storage_rejection(promise, IPC::StorageError::Unavailable);
                         return;
                     }
 
@@ -591,9 +592,7 @@ void Cache::match_all(JS::Realm& realm, Optional<Fetch::RequestInfo> request, Ca
                 HTML::Task::Source::DOMManipulation,
                 HTML::relevant_settings_object(promise->promise()).responsible_event_loop(),
                 {},
-                GC::create_function(GC::Heap::the(), GC::captures(realm, promise, responses, shared_cache), [](auto& realm, auto& promise, auto& responses, auto& shared_cache) {
-                    if (shared_cache && !cache_storage_promise_is_live(promise))
-                        return;
+                GC::create_function(GC::Heap::the(), GC::captures(realm, promise, responses), [](auto& realm, auto& promise, auto& responses) {
                     HTML::TemporaryExecutionContext context { realm, HTML::TemporaryExecutionContext::CallbacksEnabled::Yes };
 
                     resolve_cache_response_list(realm, promise, responses);
@@ -1107,7 +1106,7 @@ void Cache::keys(JS::Realm& realm, Optional<Fetch::RequestInfo> request, CacheQu
 
     // 5. Run these substeps in parallel:
     Platform::EventLoopPlugin::the().deferred_invoke(GC::create_function(GC::Heap::the(), GC::captures(*this, realm, inner_request, promise, options), [](auto& self, auto& realm, auto& inner_request, auto& promise, auto& options) {
-        self.read_snapshot(promise, GC::create_function(GC::Heap::the(), GC::captures(realm, inner_request, promise, options, self.m_remote_id.has_value()), [](auto& realm, auto& inner_request, auto& promise, auto& options, auto& shared_cache, GC::Ref<RequestResponseList> snapshot, IPC::Revision) {
+        self.read_snapshot(promise, GC::create_function(GC::Heap::the(), GC::captures(realm, inner_request, promise, options), [](auto& realm, auto& inner_request, auto& promise, auto& options, GC::Ref<RequestResponseList> snapshot, IPC::Revision) {
             // 1. Let requests be an empty list.
             Vector<NonnullRefPtr<Fetch::Infrastructure::Request>> requests;
 
@@ -1138,9 +1137,7 @@ void Cache::keys(JS::Realm& realm, Optional<Fetch::RequestInfo> request, CacheQu
                 HTML::Task::Source::DOMManipulation,
                 HTML::relevant_settings_object(promise->promise()).responsible_event_loop(),
                 {},
-                GC::create_function(GC::Heap::the(), GC::captures(realm, promise, move(requests), shared_cache), [](auto& realm, auto& promise, auto& requests, auto& shared_cache) {
-                    if (shared_cache && !cache_storage_promise_is_live(promise))
-                        return;
+                GC::create_function(GC::Heap::the(), GC::captures(realm, promise, move(requests)), [](auto& realm, auto& promise, auto& requests) {
                     HTML::TemporaryExecutionContext context { realm, HTML::TemporaryExecutionContext::CallbacksEnabled::Yes };
 
                     resolve_cache_request_list(realm, promise, requests);

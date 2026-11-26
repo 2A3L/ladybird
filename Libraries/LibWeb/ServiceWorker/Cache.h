@@ -88,7 +88,7 @@ private:
 
     void read_snapshot(GC::Ref<WebIDL::Promise>, GC::Ref<SnapshotCallback>, RefPtr<CacheBodyStaging> = {});
     void run_cache_batch(JS::Realm&, GC::Ref<BatchOperations>, GC::Ref<WebIDL::Promise>, BatchResult, RefPtr<CacheBodyStaging> = {}, unsigned retries_remaining = 3);
-    void settle_cache_batch(JS::Realm&, GC::Ref<WebIDL::Promise>, BatchResult, WebIDL::ExceptionOr<bool>) const;
+    static void settle_cache_batch(JS::Realm&, GC::Ref<WebIDL::Promise>, BatchResult, WebIDL::ExceptionOr<bool>);
     static GC::Ref<RequestResponseList> query_cache(JS::Realm&, GC::Ref<RequestResponseList>, NonnullRefPtr<Fetch::Infrastructure::Request> request_query, CacheQueryOptions, CloneCache = CloneCache::Yes);
     static WebIDL::ExceptionOr<bool> batch_cache_operations(JS::Realm&, GC::Ref<RequestResponseList>, GC::Ref<BatchOperations>);
 

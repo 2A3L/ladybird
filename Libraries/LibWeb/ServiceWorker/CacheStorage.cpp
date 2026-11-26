@@ -102,16 +102,19 @@ void reject_cache_storage_request(WebIDL::Promise& promise, IPC::StorageError er
 
 void queue_cache_storage_rejection(WebIDL::Promise& promise, IPC::StorageError error)
 {
-    if (!cache_storage_promise_is_live(promise))
+    auto& settings = HTML::relevant_settings_object(promise.promise());
+
+    // A worker's promises cannot reach another agent, so nothing can observe them once the worker is closing.
+    if (auto* worker = Bindings::worker_global_scope_from_global_object(settings.global_object()); worker && worker->is_closing())
         return;
 
-    auto& settings = HTML::relevant_settings_object(promise.promise());
-    HTML::queue_global_task(HTML::Task::Source::DOMManipulation, settings.global_object(),
+    // Another realm can still hold the promise of an owner that is gone, so it must settle. A global task of a destroyed
+    // document would never run, so this task has no document, like those that settle renderer-local caches.
+    HTML::queue_a_task(HTML::Task::Source::DOMManipulation, settings.responsible_event_loop(), {},
         GC::create_function(GC::Heap::the(), GC::captures(promise, error), [](auto& promise, auto& error) {
-            if (!cache_storage_promise_is_live(promise))
-                return;
             HTML::TemporaryExecutionContext context { WebIDL::promise_realm(promise), HTML::TemporaryExecutionContext::CallbacksEnabled::Yes };
-            reject_cache_storage_request(promise, error);
+            // An operation whose owner went away was cut short.
+            reject_cache_storage_request(promise, cache_storage_promise_is_live(promise) ? error : IPC::StorageError::Unavailable);
         }));
 }
 
@@ -130,8 +133,10 @@ static void release_cache_storage_reply_leases(GC::Ptr<HTML::EnvironmentSettings
 template<typename Response, typename Success>
 static void perform_cache_storage_request(GC::Weak<HTML::EnvironmentSettingsObject> owner, GC::Ref<WebIDL::Promise> promise, IPC::Request request, GC::Ref<Success> on_success)
 {
-    if (!cache_storage_promise_is_live(promise))
+    if (!cache_storage_promise_is_live(promise)) {
+        queue_cache_storage_rejection(promise, IPC::StorageError::Unavailable);
         return;
+    }
 
     auto callback = GC::create_function(GC::Heap::the(), GC::captures(owner, promise, on_success), [](auto& owner, auto& promise, auto& on_success, IPC::Reply reply) {
         auto settings = owner.ptr();

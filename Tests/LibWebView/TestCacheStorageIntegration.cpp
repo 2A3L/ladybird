@@ -482,6 +482,110 @@ TEST_CASE(ordinary_cache_storage_reopens_in_a_fresh_application_and_session)
 }
 #endif
 
+TEST_CASE(removing_the_owner_settles_shared_cache_operations)
+{
+    Test::HeadlessTestEnvironment environment { "TestCacheStorageOwnerRemoval"sv };
+    auto app = TRY_OR_FAIL(environment.create_application());
+    VERIFY(app->default_session().install_cache_storage_store(TRY_OR_FAIL(WebView::CacheStorageStore::create_memory_backed())));
+
+    PageServer server;
+    auto url = server.url();
+    auto theme_path = LexicalPath::join(WebView::s_ladybird_resource_root, "themes"sv, "Default.ini"sv);
+    auto theme = TRY_OR_FAIL(Gfx::load_system_theme(theme_path.string()));
+    auto view = WebView::HeadlessWebView::create(move(theme), { 800, 600 });
+    TRY_OR_FAIL(wait_for_load(*view, url, [&] { view->load_from_browser_ui(url); }));
+
+    // Operations on a cache whose owning frame goes away, started before and after its removal, must not stay pending.
+    auto result = TRY_OR_FAIL(run_cache_script(*view, "owner removal"sv, R"js(
+        const frame = document.createElement("iframe");
+        frame.src = "/frame";
+        await new Promise(resolve => { frame.onload = resolve; document.body.append(frame); });
+        const FrameResponse = frame.contentWindow.Response;
+        const entry = new URL("/entry", location.href).href;
+        const other = new URL("/other", location.href).href;
+        const cache = await frame.contentWindow.caches.open("owner removal");
+        await cache.put(entry, new FrameResponse("body"));
+
+        const start = () => [cache.keys(), cache.matchAll(), cache.put(other, new FrameResponse("other")), cache.delete(entry)];
+        const settle = promises => {
+            const timeout = new Promise(resolve => setTimeout(() => resolve("pending"), 2000));
+            return Promise.all(promises.map(promise => Promise.race([promise.then(() => "resolved", error => error.name), timeout])));
+        };
+        const before = start();
+        frame.remove();
+        const settledBefore = await settle(before);
+        await new Promise(resolve => setTimeout(resolve, 100));
+        const settledAfter = await settle(start());
+        return [...settledBefore, ...settledAfter].join(",");
+    )js"sv));
+
+    auto outcomes = result.split(',');
+    EXPECT_EQ(outcomes.size(), 8u);
+    for (auto const& outcome : outcomes) {
+        if (outcome != "resolved"sv && outcome != "AbortError"sv)
+            FAIL(ByteString::formatted("Unexpected outcome in {}", result));
+    }
+}
+
+TEST_CASE(operations_called_from_a_removed_frame_settle_consistently)
+{
+    Test::HeadlessTestEnvironment environment { "TestCacheStorageCrossRealm"sv };
+    auto app = TRY_OR_FAIL(environment.create_application());
+    VERIFY(app->default_session().install_cache_storage_store(TRY_OR_FAIL(WebView::CacheStorageStore::create_memory_backed())));
+
+    PageServer server;
+    auto url = server.url();
+    auto theme_path = LexicalPath::join(WebView::s_ladybird_resource_root, "themes"sv, "Default.ini"sv);
+    auto theme = TRY_OR_FAIL(Gfx::load_system_theme(theme_path.string()));
+    auto view = WebView::HeadlessWebView::create(move(theme), { 800, 600 });
+    TRY_OR_FAIL(wait_for_load(*view, url, [&] { view->load_from_browser_ui(url); }));
+
+    // The page's own caches, called with the methods of a frame, give their promises to the frame's realm. Once the
+    // frame is removed, each promise must settle: resolved if the operation was applied, otherwise with an AbortError.
+    auto result = TRY_OR_FAIL(run_cache_script(*view, "cross realm"sv, R"js(
+        const frame = document.createElement("iframe");
+        frame.src = "/frame";
+        await new Promise(resolve => { frame.onload = resolve; document.body.append(frame); });
+        const { Cache: FrameCache, CacheStorage: FrameCacheStorage, Response: FrameResponse } = frame.contentWindow;
+        const cache = await caches.open("cross realm");
+        const entry = name => new URL(`/${name}`, location.href).href;
+        const outcome = promise => Promise.race([
+            promise.then(() => "resolved", error => error.name),
+            new Promise(resolve => setTimeout(() => resolve("pending"), 2000)),
+        ]);
+        const start = name => [
+            FrameCache.prototype.put.call(cache, entry(name), new FrameResponse(name)),
+            FrameCacheStorage.prototype.open.call(caches, `opened ${name}`),
+            FrameCacheStorage.prototype.has.call(caches, "cross realm"),
+        ];
+
+        const before = start("before");
+        frame.remove();
+        const settledBefore = await Promise.all(before.map(outcome));
+        await new Promise(resolve => setTimeout(resolve, 100));
+        const settledAfter = await Promise.all(start("after").map(outcome));
+        const stored = [(await cache.match(entry("before"))) !== undefined, (await cache.match(entry("after"))) !== undefined];
+        return `${settledBefore.join(",")};${settledAfter.join(",")};${stored.join(",")}`;
+    )js"sv));
+    outln("Outcomes before removal; after removal; entries stored: {}", result);
+
+    auto parts = result.split(';');
+    VERIFY(parts.size() == 3);
+    auto before = parts[0].split(',');
+    auto after = parts[1].split(',');
+    auto stored = parts[2].split(',');
+    VERIFY(before.size() == 3 && after.size() == 3 && stored.size() == 2);
+    for (auto const* outcomes : { &before, &after }) {
+        for (auto const& outcome : *outcomes) {
+            if (outcome != "resolved"sv && outcome != "AbortError"sv)
+                FAIL(ByteString::formatted("Unexpected outcome in {}", result));
+        }
+    }
+    // A put resolves exactly when the Hub stored its entry.
+    EXPECT_EQ(before[0] == "resolved"sv, stored[0] == "true"sv);
+    EXPECT_EQ(after[0] == "resolved"sv, stored[1] == "true"sv);
+}
+
 TEST_CASE(same_origin_dedicated_worker_shares_cache_storage_with_its_window)
 {
     Test::HeadlessTestEnvironment environment { "TestCacheStorageDedicatedWorker"sv };
