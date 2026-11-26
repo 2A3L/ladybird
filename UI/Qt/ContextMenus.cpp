@@ -36,7 +36,7 @@ static void copy_text(ByteString const& text)
         Application::the().set_clipboard_text(MUST(String::from_byte_string(text)));
 }
 
-static NonnullRefPtr<Action> create_copy_url_action(StringView text, URL::URL const& url)
+static NonnullRefPtr<Action> create_copy_url_action(ActionText text, URL::URL const& url)
 {
     return Action::create(text, ActionID::CopyURL, [url]() {
         copy_text(WebView::url_text_to_copy(url));
@@ -45,7 +45,7 @@ static NonnullRefPtr<Action> create_copy_url_action(StringView text, URL::URL co
 
 // A URL from the context menu is the page's, a link's or an image's, so it's navigated to from the page, unless the
 // user selected it as text.
-static void add_open_in_new_tab_action(Menu& menu, u64 view_id, StringView text, URL::URL const& url, Optional<Web::HTML::PreparedNavigationDescriptor> const& navigation)
+static void add_open_in_new_tab_action(Menu& menu, u64 view_id, ActionText text, URL::URL const& url, Optional<Web::HTML::PreparedNavigationDescriptor> const& navigation)
 {
     menu.add_action(Action::create(text, ActionID::OpenInNewTab, on_view(view_id, [url, navigation](RemoteView& view) {
         if (navigation.has_value())
@@ -58,9 +58,9 @@ static void add_open_in_new_tab_action(Menu& menu, u64 view_id, StringView text,
 static void add_open_url_actions(Menu& menu, RemoteView& view, URL::URL const& url, Optional<Web::HTML::PreparedNavigationDescriptor> const& navigation)
 {
     auto view_id = view.view_id();
-    add_open_in_new_tab_action(menu, view_id, "Open Link in New Tab"sv, url, navigation);
+    add_open_in_new_tab_action(menu, view_id, WebView::ui_text("Open Link in New Tab"sv), url, navigation);
     if (view.is_private() == WebView::IsPrivate::No) {
-        menu.add_action(Action::create("Open Link in New Window"sv, ActionID::OpenInNewWindow, on_view(view_id, [url, navigation](RemoteView& view) {
+        menu.add_action(Action::create(WebView::ui_text("Open Link in New Window"sv), ActionID::OpenInNewWindow, on_view(view_id, [url, navigation](RemoteView& view) {
             if (navigation.has_value())
                 view.open_navigation_in_new_window(*navigation, WebView::IsPrivate::No);
             else
@@ -68,7 +68,7 @@ static void add_open_url_actions(Menu& menu, RemoteView& view, URL::URL const& u
         })));
     }
     if (Application::the().supports_private_browsing_windows()) {
-        menu.add_action(Action::create("Open Link in Private Window"sv, ActionID::OpenInNewPrivateWindow, on_view(view_id, [url, navigation](RemoteView& view) {
+        menu.add_action(Action::create(WebView::ui_text("Open Link in Private Window"sv), ActionID::OpenInNewPrivateWindow, on_view(view_id, [url, navigation](RemoteView& view) {
             if (!navigation.has_value()) {
                 view.open_url_in_new_window(url, WebView::IsPrivate::Yes);
                 return;
@@ -88,11 +88,11 @@ static void add_link_actions(Menu& menu, RemoteView& view, Web::HTML::PreparedNa
     auto copy_url_text = [&] {
         switch (WebView::url_type(url)) {
         case WebView::URLType::Email:
-            return "Copy Email Address"sv;
+            return WebView::ui_text("Copy Email Address"sv);
         case WebView::URLType::Telephone:
-            return "Copy Phone Number"sv;
+            return WebView::ui_text("Copy Phone Number"sv);
         case WebView::URLType::Other:
-            return "Copy Link"sv;
+            return WebView::ui_text("Copy Link"sv);
         }
         VERIFY_NOT_REACHED();
     }();
@@ -100,10 +100,10 @@ static void add_link_actions(Menu& menu, RemoteView& view, Web::HTML::PreparedNa
     add_open_url_actions(menu, view, url, navigation);
     menu.add_separator();
     menu.add_action(create_copy_url_action(copy_url_text, url));
-    menu.add_action(Action::create("Download Linked File"sv, ActionID::DownloadLinkedFile, on_view(view.view_id(), [url](RemoteView& view) {
+    menu.add_action(Action::create(WebView::ui_text("Download Linked File"sv), ActionID::DownloadLinkedFile, on_view(view.view_id(), [url](RemoteView& view) {
         view.download_url(url, RemoteView::PromptForPath::No);
     })));
-    menu.add_action(Action::create("Save Link As…"sv, ActionID::DownloadLinkedFileAs, on_view(view.view_id(), [url](RemoteView& view) {
+    menu.add_action(Action::create(WebView::ui_text("Save Link As…"sv), ActionID::DownloadLinkedFileAs, on_view(view.view_id(), [url](RemoteView& view) {
         view.download_url(url, RemoteView::PromptForPath::Yes);
     })));
 }
@@ -139,7 +139,7 @@ static void add_look_up_action(Menu& menu, u64 view_id, ContextMenuRequest const
     if (!request.dictionary_lookup.has_value())
         return;
 
-    menu.add_action(Action::create("Look Up"sv, ActionID::LookUpSelectedText, on_view(view_id, [lookup = *request.dictionary_lookup, position = request.dictionary_lookup_position](RemoteView& view) {
+    menu.add_action(Action::create(WebView::ui_text("Look Up"sv), ActionID::LookUpSelectedText, on_view(view_id, [lookup = *request.dictionary_lookup, position = request.dictionary_lookup_position](RemoteView& view) {
         if (view.on_request_dictionary_lookup)
             view.on_request_dictionary_lookup(lookup, position);
     })));
@@ -170,15 +170,15 @@ static void add_spelling_actions(Menu& menu, u64 view_id, ContextMenuRequest con
         }));
     }
     if (request.spelling_guesses.is_empty()) {
-        auto no_guesses_action = Action::create("No Guesses Found"sv, ActionID::NoSpellingGuesses, [] { });
+        auto no_guesses_action = Action::create(WebView::ui_text("No Guesses Found"sv), ActionID::NoSpellingGuesses, [] { });
         no_guesses_action->set_enabled(false);
         menu.add_action(move(no_guesses_action));
     }
     menu.add_separator();
-    menu.add_action(Action::create("Ignore Spelling"sv, ActionID::IgnoreSpelling, [view_id, word = *request.misspelled_word]() {
+    menu.add_action(Action::create(WebView::ui_text("Ignore Spelling"sv), ActionID::IgnoreSpelling, [view_id, word = *request.misspelled_word]() {
         HubConnection::the().async_view_ignore_misspelling(view_id, word);
     }));
-    menu.add_action(Action::create("Learn Spelling"sv, ActionID::LearnSpelling, [view_id, word = *request.misspelled_word]() {
+    menu.add_action(Action::create(WebView::ui_text("Learn Spelling"sv), ActionID::LearnSpelling, [view_id, word = *request.misspelled_word]() {
         HubConnection::the().async_view_learn_misspelling(view_id, word);
     }));
 }
@@ -196,7 +196,7 @@ static void add_inspect_element_action(Menu& menu, u64 view_id, ContextMenuReque
     if (!request.can_inspect_element)
         return;
     menu.add_separator();
-    menu.add_action(Action::create("Inspect Element"sv, ActionID::InspectElement, [view_id]() {
+    menu.add_action(Action::create(WebView::ui_text("Inspect Element"sv), ActionID::InspectElement, [view_id]() {
         HubConnection::the().async_view_inspect_context_menu_element(view_id);
     }));
 }
@@ -230,14 +230,14 @@ static NonnullRefPtr<Menu> create_page_context_menu(RemoteView& view, ContextMen
         view_source_action->set_enabled(view.can_view_source());
         menu->add_action(move(view_source_action));
     }
-    auto report_website_issue_action = Action::create("Report Website Issue…"sv, ActionID::ReportWebsiteIssue, on_view(view_id, [](RemoteView& view) {
+    auto report_website_issue_action = Action::create(WebView::ui_text("Report Website Issue…"sv), ActionID::ReportWebsiteIssue, on_view(view_id, [](RemoteView& view) {
         view.report_website_issue();
     }));
     report_website_issue_action->set_enabled(view.can_report_website_issue());
     menu->add_action(move(report_website_issue_action));
     menu->add_separator();
     if (is_about_page) {
-        menu->add_action(Action::create("Take Screenshot..."sv, ActionID::TakeScreenshot, on_view(view_id, [](RemoteView& view) {
+        menu->add_action(Action::create(WebView::ui_text("Take Screenshot..."sv), ActionID::TakeScreenshot, on_view(view_id, [](RemoteView& view) {
             if (view.on_request_screenshot)
                 view.on_request_screenshot();
         })));
@@ -277,7 +277,7 @@ static NonnullRefPtr<Menu> create_image_context_menu(RemoteView& view, ContextMe
     auto const& navigation = *request.navigation;
     auto url = navigation.url;
 
-    auto copy_image_action = Action::create("Copy Image"sv, ActionID::CopyImage, [bitmap = request.image_bitmap]() {
+    auto copy_image_action = Action::create(WebView::ui_text("Copy Image"sv), ActionID::CopyImage, [bitmap = request.image_bitmap]() {
         if (!bitmap.has_value() || !bitmap->is_valid())
             return;
 
@@ -294,14 +294,14 @@ static NonnullRefPtr<Menu> create_image_context_menu(RemoteView& view, ContextMe
         add_link_actions(*menu, view, *request.link_navigation);
         menu->add_separator();
     }
-    add_open_in_new_tab_action(*menu, view_id, "Open Image in New Tab"sv, url, navigation);
-    menu->add_action(Action::create("Open Image"sv, ActionID::OpenImage, on_view(view_id, [navigation](RemoteView& view) {
+    add_open_in_new_tab_action(*menu, view_id, WebView::ui_text("Open Image in New Tab"sv), url, navigation);
+    menu->add_action(Action::create(WebView::ui_text("Open Image"sv), ActionID::OpenImage, on_view(view_id, [navigation](RemoteView& view) {
         view.load(navigation);
     })));
     menu->add_separator();
     menu->add_action(move(copy_image_action));
-    menu->add_action(create_copy_url_action("Copy Image Address"sv, url));
-    menu->add_action(Action::create("Save Image As…"sv, ActionID::SaveImage, on_view(view_id, [url, image_mime_type = request.image_mime_type](RemoteView& view) {
+    menu->add_action(create_copy_url_action(WebView::ui_text("Copy Image Address"sv), url));
+    menu->add_action(Action::create(WebView::ui_text("Save Image As…"sv), ActionID::SaveImage, on_view(view_id, [url, image_mime_type = request.image_mime_type](RemoteView& view) {
         view.download_url(url, RemoteView::PromptForPath::Yes, image_mime_type);
     })));
     add_inspect_element_action(*menu, view_id, request);
@@ -321,40 +321,40 @@ static NonnullRefPtr<Menu> create_media_context_menu(RemoteView& view, ContextMe
 
     auto menu = Menu::create("Media Context Menu"sv);
     if (media.is_playing)
-        menu->add_action(Action::create("Pause"sv, ActionID::PauseMedia, send(ContextMenuMediaAction::TogglePlay)));
+        menu->add_action(Action::create(WebView::ui_text("Pause"sv), ActionID::PauseMedia, send(ContextMenuMediaAction::TogglePlay)));
     else
-        menu->add_action(Action::create("Play"sv, ActionID::PlayMedia, send(ContextMenuMediaAction::TogglePlay)));
+        menu->add_action(Action::create(WebView::ui_text("Play"sv), ActionID::PlayMedia, send(ContextMenuMediaAction::TogglePlay)));
     if (media.is_muted)
-        menu->add_action(Action::create("Unmute"sv, ActionID::UnmuteMedia, send(ContextMenuMediaAction::ToggleMute)));
+        menu->add_action(Action::create(WebView::ui_text("Unmute"sv), ActionID::UnmuteMedia, send(ContextMenuMediaAction::ToggleMute)));
     else
-        menu->add_action(Action::create("Mute"sv, ActionID::MuteMedia, send(ContextMenuMediaAction::ToggleMute)));
+        menu->add_action(Action::create(WebView::ui_text("Mute"sv), ActionID::MuteMedia, send(ContextMenuMediaAction::ToggleMute)));
     if (media.has_user_agent_controls)
-        menu->add_action(Action::create("Hide Controls"sv, ActionID::HideControls, send(ContextMenuMediaAction::ToggleControls)));
+        menu->add_action(Action::create(WebView::ui_text("Hide Controls"sv), ActionID::HideControls, send(ContextMenuMediaAction::ToggleControls)));
     else
-        menu->add_action(Action::create("Show Controls"sv, ActionID::ShowControls, send(ContextMenuMediaAction::ToggleControls)));
-    auto loop_action = Action::create_checkable("Loop"sv, ActionID::ToggleMediaLoopState, send(ContextMenuMediaAction::ToggleLoop));
+        menu->add_action(Action::create(WebView::ui_text("Show Controls"sv), ActionID::ShowControls, send(ContextMenuMediaAction::ToggleControls)));
+    auto loop_action = Action::create_checkable(WebView::ui_text("Loop"sv), ActionID::ToggleMediaLoopState, send(ContextMenuMediaAction::ToggleLoop));
     loop_action->set_checked(media.is_looping);
     menu->add_action(move(loop_action));
     menu->add_separator();
     if (media.is_picture_in_picture)
-        menu->add_action(Action::create("Exit Picture in Picture"sv, ActionID::ExitPictureInPicture, send(ContextMenuMediaAction::TogglePictureInPicture)));
+        menu->add_action(Action::create(WebView::ui_text("Exit Picture in Picture"sv), ActionID::ExitPictureInPicture, send(ContextMenuMediaAction::TogglePictureInPicture)));
     else if (media.can_enter_picture_in_picture)
-        menu->add_action(Action::create("Picture in Picture"sv, ActionID::EnterPictureInPicture, send(ContextMenuMediaAction::TogglePictureInPicture)));
+        menu->add_action(Action::create(WebView::ui_text("Picture in Picture"sv), ActionID::EnterPictureInPicture, send(ContextMenuMediaAction::TogglePictureInPicture)));
     if (media.is_video && media.is_fullscreen)
-        menu->add_action(Action::create("Exit Full Screen"sv, ActionID::ExitFullscreen, send(ContextMenuMediaAction::ToggleFullscreen)));
+        menu->add_action(Action::create(WebView::ui_text("Exit Full Screen"sv), ActionID::ExitFullscreen, send(ContextMenuMediaAction::ToggleFullscreen)));
     else if (media.is_video)
-        menu->add_action(Action::create("Full Screen"sv, ActionID::EnterFullscreen, send(ContextMenuMediaAction::ToggleFullscreen)));
+        menu->add_action(Action::create(WebView::ui_text("Full Screen"sv), ActionID::EnterFullscreen, send(ContextMenuMediaAction::ToggleFullscreen)));
     menu->add_separator();
     if (media.media_url.has_value()) {
         auto url = *media.media_url;
         // NB: The page controls the media URL, so it's opened only as a navigation from the page.
         if (request.navigation.has_value()) {
-            add_open_in_new_tab_action(*menu, view_id, media.is_video ? "Open Video in New Tab"sv : "Open Audio in New Tab"sv, url, request.navigation);
-            menu->add_action(Action::create(media.is_video ? "Open Video"sv : "Open Audio"sv, media.is_video ? ActionID::OpenVideo : ActionID::OpenAudio, on_view(view_id, [navigation = *request.navigation](RemoteView& view) {
+            add_open_in_new_tab_action(*menu, view_id, WebView::ui_text(media.is_video ? "Open Video in New Tab"sv : "Open Audio in New Tab"sv), url, request.navigation);
+            menu->add_action(Action::create(WebView::ui_text(media.is_video ? "Open Video"sv : "Open Audio"sv), media.is_video ? ActionID::OpenVideo : ActionID::OpenAudio, on_view(view_id, [navigation = *request.navigation](RemoteView& view) {
                 view.load(navigation);
             })));
         }
-        menu->add_action(create_copy_url_action(media.is_video ? "Copy Video Address"sv : "Copy Audio Address"sv, url));
+        menu->add_action(create_copy_url_action(WebView::ui_text(media.is_video ? "Copy Video Address"sv : "Copy Audio Address"sv), url));
     }
     add_inspect_element_action(*menu, view_id, request);
     return menu;
