@@ -15,6 +15,7 @@
 #include <LibWeb/Fetch/Infrastructure/HTTP/Requests.h>
 #include <LibWeb/Fetch/Infrastructure/HTTP/Responses.h>
 #include <LibWeb/Loader/LoaderConfig.h>
+#include <LibWeb/ServiceWorker/CacheResponsePolicy.h>
 
 namespace {
 
@@ -64,4 +65,38 @@ TEST_CASE(http_redirect_fetch_releases_intermediate_response_transfer_lease)
 
     VERIFY(pending_response);
     EXPECT(response->transfer_lease_was_released());
+}
+
+TEST_CASE(cached_opaque_response_obeys_embedder_policy)
+{
+    using Web::Fetch::Infrastructure::OpaqueFilteredResponse;
+    using Web::Fetch::Infrastructure::Response;
+    using Web::HTML::EmbedderPolicy;
+    using Web::HTML::EmbedderPolicyValue;
+    using Web::ServiceWorker::cached_response_is_blocked_by_cross_origin_policy;
+
+    auto resource_url = URL::Parser::basic_parse("https://resource.test/fixture"sv);
+    auto document_url = URL::Parser::basic_parse("https://document.test/"sv);
+    VERIFY(resource_url.has_value());
+    VERIFY(document_url.has_value());
+
+    auto resource_origin = resource_url->origin();
+    auto document_origin = document_url->origin();
+    EmbedderPolicy requires_corp;
+    requires_corp.value = EmbedderPolicyValue::RequireCorp;
+
+    auto response = Response::create();
+    response->set_url_list({ resource_url.release_value() });
+    auto opaque_response = OpaqueFilteredResponse::create(response);
+
+    EXPECT(!cached_response_is_blocked_by_cross_origin_policy(document_origin, requires_corp, *response));
+    EXPECT(!cached_response_is_blocked_by_cross_origin_policy(document_origin, {}, *opaque_response));
+    EXPECT(!cached_response_is_blocked_by_cross_origin_policy(resource_origin, requires_corp, *opaque_response));
+    EXPECT(cached_response_is_blocked_by_cross_origin_policy(document_origin, requires_corp, *opaque_response));
+
+    response->set_header_list(HTTP::HeaderList::create({ { "Cross-Origin-Resource-Policy"sv, "cross-origin"sv } }));
+    EXPECT(!cached_response_is_blocked_by_cross_origin_policy(document_origin, requires_corp, *opaque_response));
+
+    auto opaque_response_without_url = OpaqueFilteredResponse::create(Response::create());
+    EXPECT(cached_response_is_blocked_by_cross_origin_policy(document_origin, requires_corp, *opaque_response_without_url));
 }

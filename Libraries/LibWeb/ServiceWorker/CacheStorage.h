@@ -31,13 +31,18 @@ public:
     GC::Ref<RequestResponseList> get_or_create_cache(Utf16String const& cache_name);
 
 private:
-    CacheStorage();
+    explicit CacheStorage(HTML::EnvironmentSettingsObject&);
+
+    bool uses_hub() const;
+    void match_in_hub(JS::Realm&, Fetch::RequestInfo, MultiCacheQueryOptions, GC::Ref<WebIDL::Promise>);
+    static void match_in_leased_caches(JS::Realm&, GC::Ref<GC::HeapVector<GC::Ref<Cache>>>, Fetch::RequestInfo, MultiCacheQueryOptions, GC::Ref<WebIDL::Promise>);
 
     virtual void visit_edges(GC::Cell::Visitor&) override;
 
     NameToCacheMap& relevant_name_to_cache_map();
 
     NameToCacheMap m_relevant_name_to_cache_map;
+    GC::Weak<HTML::EnvironmentSettingsObject> m_owner;
 };
 
 }
