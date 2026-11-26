@@ -59,6 +59,8 @@ public:
 #endif
     ~CacheStorageStore();
 
+    bool is_file_backed() const { return m_profile_lock.ptr() != nullptr; }
+
     // Open and find acquire a lease. Deleting a name detaches it; existing leases retain that cache's identity.
     ErrorOr<u64> open(String const& partition_key, Utf16String const& name);
     ErrorOr<Optional<u64>> find(String const& partition_key, Utf16String const& name);

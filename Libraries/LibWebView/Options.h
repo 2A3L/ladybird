@@ -47,6 +47,11 @@ enum class DisableSQLDatabase {
     Yes,
 };
 
+enum class EnableCacheStorageHub {
+    No,
+    Yes,
+};
+
 enum class EnableAutoplay {
     No,
     Yes,
@@ -102,6 +107,8 @@ struct BrowserOptions {
     AllowPopups allow_popups { AllowPopups::No };
     DisableScripting disable_scripting { DisableScripting::No };
     DisableSQLDatabase disable_sql_database { DisableSQLDatabase::No };
+    // Experimental: see the help of --enable-cache-storage-hub for why this is off by default.
+    EnableCacheStorageHub enable_cache_storage_hub { EnableCacheStorageHub::No };
     Vector<ProcessType> debug_helper_processes {};
     Optional<ProcessType> profile_helper_process {};
     ProfileTool profile_tool { ProfileTool::Callgrind };

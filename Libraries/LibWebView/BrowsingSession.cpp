@@ -27,7 +27,8 @@ BrowsingSession::~BrowsingSession() = default;
 
 bool BrowsingSession::install_cache_storage_store(NonnullOwnPtr<CacheStorageStore> store)
 {
-    if (m_cache_storage_store)
+    // A private session keeps nothing on disk.
+    if (m_cache_storage_store || (m_is_private == IsPrivate::Yes && store->is_file_backed()))
         return false;
     m_cache_storage_store = move(store);
 
