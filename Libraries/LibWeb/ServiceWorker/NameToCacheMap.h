@@ -10,12 +10,13 @@
 #include <LibGC/Cell.h>
 #include <LibGC/CellAllocator.h>
 #include <LibGC/HeapVector.h>
+#include <LibWeb/Export.h>
 #include <LibWeb/Forward.h>
 
 namespace Web::ServiceWorker {
 
 // https://w3c.github.io/ServiceWorker/#dfn-request-response-list
-struct RequestResponse : public GC::Cell {
+struct WEB_API RequestResponse : public GC::Cell {
     GC_CELL(RequestResponse, GC::Cell);
     GC_DECLARE_ALLOCATOR(RequestResponse);
 

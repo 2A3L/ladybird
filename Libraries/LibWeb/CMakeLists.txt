@@ -721,6 +721,7 @@ set(SOURCES
     Selection/CaretNavigation.cpp
     Selection/SelectionModifier.cpp
     ServiceWorker/Cache.cpp
+    ServiceWorker/CacheSnapshot.cpp
     ServiceWorker/CacheStorage.cpp
     ServiceWorker/EventNames.cpp
     ServiceWorker/Job.cpp
