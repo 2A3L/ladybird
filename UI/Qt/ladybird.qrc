@@ -6,5 +6,6 @@
         <file>OrcaScripts/Ladybird/script.py</file>
         <file>OrcaScripts/Ladybird/script_utilities.py</file>
         <file>OrcaScripts/orca_customizations_bootstrap.py</file>
+        <file>keepassxc_bridge.py</file>
     </qresource>
 </RCC>

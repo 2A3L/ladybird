@@ -180,6 +180,7 @@ private:
     virtual void pinch_event(Web::PageId page_id, Web::PinchEvent) override;
     virtual void pinch_event_in_hosted_root(Web::PageId page_id, Web::HTML::CrossProcessId navigable_id, Web::PinchEvent) override;
     virtual void debug_request(Web::PageId page_id, ByteString, ByteString) override;
+    virtual void fill_keepass_credentials(Web::PageId page_id, Web::HTML::CrossProcessId, String origin, Core::AnonymousBuffer) override;
     virtual void get_source(Web::PageId page_id) override;
     virtual void inspect_dom_tree(Web::PageId page_id) override;
     virtual void inspect_storage(Web::PageId page_id, Web::StorageAPI::StorageEndpointType storage_endpoint, u64 request_id) override;

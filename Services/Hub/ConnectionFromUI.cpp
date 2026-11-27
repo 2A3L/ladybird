@@ -14,7 +14,9 @@
 #include <LibHTTP/HeaderList.h>
 #include <LibRequests/RequestClient.h>
 #include <LibWebCommon/Loader/UserAgent.h>
+#include <LibWebCommon/Page/CredentialFill.h>
 #include <LibWebView/BrowsingSession.h>
+#include <LibWebView/CanonicalTraversable.h>
 #include <LibWebView/CrashReportStore.h>
 #include <LibWebView/DefaultBrowser.h>
 #include <LibWebView/GamepadManager.h>
@@ -25,6 +27,7 @@
 #include <LibWebView/Settings.h>
 #include <LibWebView/TabPerformanceMonitor.h>
 #include <LibWebView/UpdateCheck.h>
+#include <LibWebView/WebContentPage.h>
 #include <LibWebView/WebCompatReport.h>
 #include <LibWebView/WebUI/ApplicationWebUI.h>
 
@@ -1169,6 +1172,41 @@ void ConnectionFromUI::view_select_all(u64 view_id)
 {
     if (auto* view = find_view(view_id))
         view->select_all();
+}
+
+static WebView::CanonicalDocument const* keepass_document(View const* view)
+{
+    if (!view || view->is_private() == WebView::IsPrivate::Yes || !view->has_traversable() || !view->can_view_source() || view->traversable().has_uncommitted_navigation())
+        return nullptr;
+
+    auto const& document = view->traversable().active_document();
+    if (document.creation_url().scheme() != "https"sv || !document.origin().is_same_origin(document.creation_url().origin()) || !document.host())
+        return nullptr;
+    auto const& url = document.creation_url();
+    if (any_of(view->session().trusted_certificates, [&](auto const& certificate) {
+            return certificate.host == url.serialized_host() && certificate.port == url.port_or_default();
+        }))
+        return nullptr;
+    return &document;
+}
+
+Messages::HubServer::ViewKeepassContextResponse ConnectionFromUI::view_keepass_context(u64 view_id)
+{
+    if (auto const* document = keepass_document(find_view(view_id)); document && !Application::profile().is_temporary())
+        return { document->id(), document->origin().serialize(), Application::profile().paths().config };
+    return { {}, {}, {} };
+}
+
+void ConnectionFromUI::view_fill_keepass_credentials(u64 view_id, Web::HTML::CrossProcessId document_id, String origin, Core::AnonymousBuffer credentials)
+{
+    auto* view = find_view(view_id);
+    auto const* document = keepass_document(view);
+    if (!document || document->id() != document_id || document->origin().serialize() != origin || !view->traversable().has_system_focus())
+        return;
+    if (credentials.size() == 0 || credentials.size() > Web::maximum_credential_fill_payload_size)
+        return;
+
+    document->host()->async_fill_keepass_credentials(document_id, move(origin), move(credentials));
 }
 
 void ConnectionFromUI::view_get_source(u64 view_id)

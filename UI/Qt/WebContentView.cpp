@@ -819,6 +819,10 @@ static bool is_browser_reserved_shortcut(QKeyEvent const& event)
 #else
     if (modifiers == Qt::ControlModifier && key == Qt::Key_F4)
         return true;
+#    if defined(AK_OS_LINUX) && defined(LADYBIRD_HUB_IN_OWN_PROCESS)
+    if (modifiers == (Qt::ControlModifier | Qt::ShiftModifier) && key == Qt::Key_L)
+        return true;
+#    endif
 #endif
 
     if (modifiers == Qt::ControlModifier && key == Qt::Key_PageUp)

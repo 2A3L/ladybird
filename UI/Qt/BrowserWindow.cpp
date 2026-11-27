@@ -24,6 +24,7 @@
 #include <UI/Qt/DevToolsBanner.h>
 #include <UI/Qt/HubConnection.h>
 #include <UI/Qt/Icon.h>
+#include <UI/Qt/KeePassXC.h>
 #include <UI/Qt/LadybirdButton.h>
 #include <UI/Qt/Localization.h>
 #include <UI/Qt/Menu.h>
@@ -590,6 +591,20 @@ void BrowserWindow::initialize_ladybird_menu()
     m_ladybird_menu->addAction(application.find_in_page_action());
     m_ladybird_menu->addSeparator();
 
+#if defined(AK_OS_LINUX) && defined(LADYBIRD_HUB_IN_OWN_PROCESS)
+    auto* fill_password = m_ladybird_menu->addAction(QString());
+    bind_ui_text(*fill_password, WebView::ui_text("Fill with KeePassXC"sv), [fill_password](QString const& text) {
+        fill_password->setText(text);
+    });
+    fill_password->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_L));
+    addAction(fill_password);
+    QObject::connect(fill_password, &QAction::triggered, this, [this] { request_keepassxc(*this, false); });
+    auto* manage_passwords = m_ladybird_menu->addAction(QString());
+    bind_ui_text(*manage_passwords, WebView::ui_text("Save or Update in KeePassXC…"sv), [manage_passwords](QString const& text) {
+        manage_passwords->setText(text);
+    });
+    QObject::connect(manage_passwords, &QAction::triggered, this, [this] { request_keepassxc(*this, true); });
+#endif
     m_ladybird_menu->addAction(application.open_settings_action());
     m_ladybird_menu->addMenu(application.inspect_menu());
     m_ladybird_menu->addMenu(application.debug_menu());

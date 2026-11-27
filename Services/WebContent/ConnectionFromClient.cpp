@@ -52,6 +52,7 @@
 #include <LibWeb/DOM/Document.h>
 #include <LibWeb/DOM/Element.h>
 #include <LibWeb/DOM/ElementFactory.h>
+#include <LibWeb/DOM/Event.h>
 #include <LibWeb/DOM/Node.h>
 #include <LibWeb/DOM/Range.h>
 #include <LibWeb/DOM/ShadowRoot.h>
@@ -67,6 +68,7 @@
 #include <LibWeb/HTML/EventLoop/EventLoop.h>
 #include <LibWeb/HTML/Focus.h>
 #include <LibWeb/HTML/FormAssociatedElement.h>
+#include <LibWeb/HTML/HTMLFormElement.h>
 #include <LibWeb/HTML/HTMLIFrameElement.h>
 #include <LibWeb/HTML/HTMLInputElement.h>
 #include <LibWeb/HTML/HTMLOptionElement.h>
@@ -103,8 +105,10 @@
 #include <LibWeb/ServiceWorker/CacheStorageConnection.h>
 #include <LibWeb/UIEvents/InputTypes.h>
 #include <LibWebCommon/HTML/SelectedFile.h>
+#include <LibWebCommon/Infra/CharacterTypes.h>
 #include <LibWebCommon/Infra/Strings.h>
 #include <LibWebCommon/Loader/UserAgent.h>
+#include <LibWebCommon/Page/CredentialFill.h>
 #include <LibWebCommon/WebDriver/Error.h>
 #include <LibWebCommon/WebView/AccessibilityNodeData.h>
 #include <LibWebCommon/WebView/Attribute.h>
@@ -1505,6 +1509,130 @@ void ConnectionFromClient::debug_request(Web::PageId page_id, ByteString request
         Web::ResourceLoader::the().set_navigator_compatibility_mode(compatibility_mode);
         return;
     }
+}
+
+static bool is_fillable_credential_field(Web::HTML::HTMLInputElement& input)
+{
+    return input.is_mutable() && !input.is_inert() && input.check_visibility({ .opacity_property = true, .visibility_property = true });
+}
+
+void ConnectionFromClient::fill_keepass_credentials(Web::PageId page_id, Web::HTML::CrossProcessId document_id, String origin, Core::AnonymousBuffer credentials)
+{
+    using namespace Web::HTML;
+    using Input = HTMLInputElement;
+    using Type = Input::TypeAttributeState;
+
+    auto page = this->page(page_id);
+    if (!page.has_value())
+        return;
+    auto document = page->page().local_traversable()->active_document();
+    if (!document || !document->is_fully_active() || !document->has_focus() || document->id() != document_id
+        || document->url().scheme() != "https"sv || document->origin().serialize() != origin)
+        return;
+
+    auto* focused = as_if<Input>(document->focused_area().ptr());
+    if (!focused || !is_fillable_credential_field(*focused) || &*focused->get_root_node() != document.ptr())
+        return;
+
+    auto is_username_field = [](Input& input) {
+        return input.type_state() == Type::Text || input.type_state() == Type::Email;
+    };
+    auto has_autocomplete_token = [](Input& input, Utf16View token) {
+        auto autocomplete = input.get_attribute_value(AttributeNames::autocomplete).to_ascii_lowercase();
+        auto view = autocomplete.utf16_view();
+        size_t start = 0;
+        for (size_t end = 0; end <= view.length_in_code_units(); ++end) {
+            if (end < view.length_in_code_units() && !Web::Infra::is_ascii_whitespace(view.code_unit_at(end)))
+                continue;
+            if (view.substring_view(start, end - start) == token)
+                return true;
+            start = end + 1;
+        }
+        return false;
+    };
+    auto is_password_field = [&](Input& input) {
+        return input.type_state() == Type::Password && !has_autocomplete_token(input, u"new-password"sv);
+    };
+    if (!is_username_field(*focused) && !is_password_field(*focused))
+        return;
+
+    auto is_same_origin_action = [&](Utf16View action) {
+        // Empty action and formaction attributes submit to the current document URL.
+        if (action.is_empty())
+            return true;
+        auto url = document->encoding_parse_url(action);
+        return url.has_value() && url->origin().is_same_origin(document->origin());
+    };
+
+    GC::Root<Input> username;
+    GC::Root<Input> password;
+    if (is_password_field(*focused))
+        password = focused;
+    else
+        username = focused;
+
+    if (auto* form = focused->form()) {
+        if (!is_same_origin_action(form->get_attribute_value(AttributeNames::action)))
+            return;
+        auto const scanned_form = document->for_each_in_subtree_of_type<HTMLElement>([&](auto& element) {
+            // Form-associated inputs and buttons can be anywhere in the document.
+            if (element.form() != form)
+                return Web::TraversalDecision::Continue;
+            if (!is_same_origin_action(element.get_attribute_value(AttributeNames::formaction)))
+                return Web::TraversalDecision::Break;
+            auto* field = as_if<Input>(element);
+            if (!field || field == focused || !is_fillable_credential_field(*field))
+                return Web::TraversalDecision::Continue;
+            if (is_password_field(*focused) && is_username_field(*field)
+                && (!username || has_autocomplete_token(*field, u"username"sv)))
+                username = field;
+            if (is_username_field(*focused) && is_password_field(*field)) {
+                if (password)
+                    return Web::TraversalDecision::Break; // Require explicit focus when there is more than one candidate.
+                password = field;
+            }
+            return Web::TraversalDecision::Continue;
+        });
+        if (scanned_form == Web::TraversalDecision::Break)
+            return;
+    }
+
+    if (!password && (!username || !has_autocomplete_token(*username, u"username"sv)))
+        return;
+    if (!document->is_fully_active() || document->focused_area().ptr() != focused)
+        return;
+    if (credentials.size() == 0 || credentials.size() > Web::maximum_credential_fill_payload_size || credentials.validate_backing_size().is_error())
+        return;
+    auto payload = JsonValue::from_string(StringView(credentials.bytes()));
+    if (payload.is_error() || !payload.value().is_object())
+        return;
+    auto const& fields = payload.value().as_object();
+    auto login = fields.get_string("login"sv);
+    auto secret = fields.get_string("password"sv);
+    if (!login.has_value() || !secret.has_value() || secret->is_empty())
+        return;
+
+    // Write both fields before dispatching DOM events, whose listeners may change focus, target form or navigation.
+    if (username && username->set_value(Utf16String::from_utf8(*login)).is_error())
+        return;
+    if (password && password->set_value(Utf16String::from_utf8(*secret)).is_error())
+        return;
+
+    GC::Root document_root { document };
+    auto is_current_field = [&](Input& field) {
+        return field.is_connected() && &field.document() == document_root.ptr() && document_root->is_fully_active();
+    };
+    auto notify_field = [&](Input& field) {
+        if (!is_current_field(field))
+            return;
+        field.dispatch_event(Web::DOM::Event::create(relevant_global_object(field), EventNames::input, { .bubbles = true, .composed = true }));
+        if (is_current_field(field))
+            field.dispatch_event(Web::DOM::Event::create(relevant_global_object(field), EventNames::change, { .bubbles = true }));
+    };
+    if (username)
+        notify_field(*username);
+    if (password)
+        notify_field(*password);
 }
 
 void ConnectionFromClient::get_source(Web::PageId page_id)

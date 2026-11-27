@@ -39,6 +39,7 @@ add_library(ladybird_impl STATIC
     FindInPageWidget.cpp
     HiddenPageSizing.cpp
     HistoryPage.cpp
+    KeePassXC.cpp
     HubConnection.cpp
     Icon.cpp
     InputMethodUtils.cpp
