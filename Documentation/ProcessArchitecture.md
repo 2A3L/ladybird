@@ -28,7 +28,7 @@ Ladybird uses a multi-process architecture to improve stability and security in 
 | **UI** | One | By the user |
 | **Hub** | One | By **UI**, as it starts |
 | **Compositor** | One | At startup, and again if it crashes |
-| **WebContent** | One per set of documents that must share a process, see [site isolation](#site-isolation) | When a document needs one, with a spare kept ready for the next tab. An interactive browser skips or closes the spare under critical memory pressure. |
+| **WebContent** | One per set of documents that must share a process, see [site isolation](#site-isolation) | When a document needs one, with a spare kept ready for the next tab. The browser delays preparing the spare during session restore and skips or closes it under critical memory pressure. |
 | **RequestServer** | One per browsing session and top-level site, plus one per session with no site | The default session's one with no site at startup, the others on first use |
 | **ImageDecoder** | One per browsing session and site, or one for a single process | When a renderer first has an image to decode |
 | **MediaServer** | One per renderer | When the renderer first needs one |

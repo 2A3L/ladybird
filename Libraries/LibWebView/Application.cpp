@@ -123,6 +123,7 @@ static constexpr size_t maximum_content_blocker_list_size = 64 * MiB;
 static constexpr size_t maximum_combined_content_blocker_list_size = 256 * MiB;
 
 Application* Application::s_the = nullptr;
+RefPtr<Core::Timer> Application::s_spare_web_content_process_delay_timer;
 
 static constexpr double default_display_refresh_rate = 60.0;
 
@@ -228,6 +229,8 @@ OwnPtr<MediaSessionPlatformBackend> Application::create_media_session_platform_b
 
 Application::~Application()
 {
+    s_spare_web_content_process_delay_timer = nullptr;
+
 #if !defined(AK_OS_WINDOWS)
     // No event loop runs the handlers during teardown, so a signal from here on takes its default action again.
     for (auto handler : m_session_signal_handlers)
@@ -1776,6 +1779,18 @@ bool Application::tabs_may_share_processes() const
         && tab_processes() != TabProcesses::PerTab;
 }
 
+void Application::delay_spare_web_content_process_for_session_restore()
+{
+    if (s_spare_web_content_process_delay_timer)
+        return;
+
+    // Let the restored foreground tabs start before allocating a process that may not be needed yet.
+    s_spare_web_content_process_delay_timer = Core::Timer::create_single_shot(AK::Duration::from_seconds(5), [this] {
+        launch_spare_web_content_process();
+    });
+    s_spare_web_content_process_delay_timer->start();
+}
+
 ErrorOr<NonnullRefPtr<WebContentPage>> Application::open_page_for_new_tab(IsPrivate is_private)
 {
     if (m_spare_web_content_process && !m_spare_web_content_process->is_open())
@@ -1812,6 +1827,9 @@ ErrorOr<Application::ChildFrameWebContentProcess> Application::launch_child_fram
 
 void Application::launch_spare_web_content_process()
 {
+    if (s_spare_web_content_process_delay_timer && s_spare_web_content_process_delay_timer->is_active())
+        return;
+
     // Spare WebContent processes inherit the active WebDriver endpoint, but they are not part of the
     // session and can race browser shutdown while bootstrapping.
     if (browser_options().webdriver_browser_endpoint.has_value())
@@ -1830,6 +1848,9 @@ void Application::launch_spare_web_content_process()
 
     Core::deferred_invoke([this]() {
         m_has_queued_task_to_launch_spare_web_content_process = false;
+
+        if (m_event_loop->was_exit_requested())
+            return;
 
         // Check while preparing the spare, outside the path that takes it to open a tab.
         if (m_tab_discarder && Core::Platform::system_memory_pressure() == Core::Platform::MemoryPressure::Critical)

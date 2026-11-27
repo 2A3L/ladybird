@@ -660,6 +660,11 @@ void ConnectionFromUI::ui_did_start()
     Application::the().ui_did_start();
 }
 
+void ConnectionFromUI::ui_will_restore_session()
+{
+    Application::the().delay_spare_web_content_process_for_session_restore();
+}
+
 // NB: The UI makes no requests of its own choosing. It names a search engine and a query, and the Hub makes the request
 //     for that engine's suggestions, as the UI's own settings say.
 void ConnectionFromUI::fetch_search_suggestions(u64 request_id, String engine_name, String query, WebView::IsPrivate is_private)

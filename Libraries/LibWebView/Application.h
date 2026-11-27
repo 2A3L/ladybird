@@ -247,6 +247,7 @@ public:
 
     TabProcesses tab_processes() const;
     bool tabs_may_share_processes() const;
+    void delay_spare_web_content_process_for_session_restore();
     ErrorOr<NonnullRefPtr<WebContentPage>> open_page_for_new_tab(IsPrivate);
     struct ChildFrameWebContentProcess {
         NonnullRefPtr<WebContentClient> client;
@@ -622,6 +623,7 @@ private:
     virtual void did_close_devtools_connection() override;
 
     static Application* s_the;
+    static RefPtr<Core::Timer> s_spare_web_content_process_delay_timer;
 
     Optional<Profile> m_profile;
     LocalFileGrantPolicy m_local_file_grant_policy;
