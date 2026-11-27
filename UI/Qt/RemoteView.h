@@ -263,11 +263,7 @@ public:
         if (auto result = m_backing_stores.add(move(bitmap_ids), move(backing_stores)); result.is_error())
             warnln("Could not add backing stores: {}", result.error());
     }
-    void did_retire_backing_stores(ReadonlySpan<i32> bitmap_ids)
-    {
-        m_backing_stores.retire(bitmap_ids);
-        backing_stores_were_retired();
-    }
+    void did_retire_backing_stores(ReadonlySpan<i32> bitmap_ids);
     void did_present_backing_store(u64 page_id, i32 bitmap_id, Gfx::IntSize, double device_pixel_ratio);
     void did_accept_backing_store(i32 bitmap_id, Gfx::IntRect damage_rect);
     void did_keep_front_backing_store_as_backup() { m_backing_stores.keep_front_as_backup(); }

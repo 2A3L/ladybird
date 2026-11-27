@@ -1593,6 +1593,14 @@ void Application::update_compositor_context_visibility(Web::CompositorContextId 
     m_compositor_client->async_set_context_visibility(context_id, context_visibility);
 }
 
+void Application::retire_hidden_software_frames(Vector<Web::CompositorContextId> context_ids)
+{
+    if (context_ids.is_empty() || !can_send_compositor_process_ipc(m_compositor_client))
+        return;
+    VERIFY(m_compositor_client);
+    m_compositor_client->async_retire_hidden_software_frames(move(context_ids));
+}
+
 Optional<Application::RemoteLayer> Application::create_remote_layer()
 {
     if (!m_compositor_presentation_client || !can_send_compositor_process_ipc(m_compositor_client))

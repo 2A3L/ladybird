@@ -290,6 +290,7 @@ public:
     void update_compositor_high_dynamic_range_surfaces();
     void update_compositor_display_metadata(Web::CompositorContextId, Optional<u64> display_id, double refresh_rate);
     void update_compositor_context_visibility(Web::CompositorContextId, Web::HTML::VisibilityState);
+    void retire_hidden_software_frames(Vector<Web::CompositorContextId>);
     void update_compositor_context_presents_from_cpu_memory(Web::CompositorContextId, bool);
     void update_compositor_context_scales_frames_to_fit(Web::CompositorContextId, bool);
 

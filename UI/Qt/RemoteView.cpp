@@ -27,6 +27,11 @@
 #include <UI/Qt/ContextMenus.h>
 #include <UI/Qt/RemoteView.h>
 
+#ifdef AK_OS_LINUX
+#    include <QImage>
+#    include <QPainter>
+#endif
+
 namespace Ladybird {
 
 static HashMap<u64, RemoteView*> s_views;
@@ -198,6 +203,55 @@ void RemoteView::did_install_backing_stores(u64 page_id, Vector<i32> bitmap_ids,
         return;
     }
     m_backing_stores_page_id = page_id;
+}
+
+#ifdef AK_OS_LINUX
+static OwnPtr<Gfx::SharedImageBuffer> make_retired_frame_preview(WebView::PageBackingStores const& stores)
+{
+    auto displayed = stores.displayed_frame();
+    if (!displayed.has_value() || !displayed->shared_image_buffer)
+        return {};
+    auto bitmap = displayed->shared_image_buffer->bitmap_if_present();
+    if (!bitmap)
+        return {};
+    auto width = min(bitmap->width(), displayed->size.width());
+    auto height = min(bitmap->height(), displayed->size.height());
+    constexpr int maximum_preview_extent = 320;
+    if (width <= 0 || height <= 0 || max(width, height) <= maximum_preview_extent)
+        return {};
+
+    auto size = QSize { width, height }.scaled(maximum_preview_extent, maximum_preview_extent, Qt::KeepAspectRatio);
+    size = size.expandedTo(QSize { 1, 1 });
+    auto buffer = Gfx::SharedImageBuffer::try_create({ size.width(), size.height() });
+    if (buffer.is_error())
+        return {};
+
+    auto preview_bitmap = buffer.value().bitmap();
+    QImage preview(preview_bitmap->scanline_u8(0), size.width(), size.height(), preview_bitmap->pitch(), QImage::Format_RGB32);
+    QImage frame(static_cast<Gfx::Bitmap const&>(*bitmap).scanline_u8(0), width, height, bitmap->pitch(), QImage::Format_RGB32);
+    QPainter painter(&preview);
+    if (!painter.isActive())
+        return {};
+    painter.setRenderHint(QPainter::SmoothPixmapTransform);
+    painter.drawImage(preview.rect(), frame);
+    painter.end();
+    return make<Gfx::SharedImageBuffer>(buffer.release_value());
+}
+#endif
+
+void RemoteView::did_retire_backing_stores(ReadonlySpan<i32> bitmap_ids)
+{
+#ifdef AK_OS_LINUX
+    OwnPtr<Gfx::SharedImageBuffer> preview;
+    if (m_backing_stores.has_usable_front_bitmap() && bitmap_ids.contains_slow(m_backing_stores.front_bitmap_id()))
+        preview = make_retired_frame_preview(m_backing_stores);
+#endif
+    m_backing_stores.retire(bitmap_ids);
+#ifdef AK_OS_LINUX
+    if (preview && !m_backing_stores.has_usable_front_bitmap())
+        m_backing_stores.replace_backup_bitmap(preview.release_nonnull());
+#endif
+    backing_stores_were_retired();
 }
 
 void RemoteView::did_present_backing_store(u64 page_id, i32 bitmap_id, Gfx::IntSize size, double device_pixel_ratio)

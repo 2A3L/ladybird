@@ -470,6 +470,18 @@ impl ContextPresenting {
         self.backing_stores.has_stores_left_to_retire_while_hidden()
     }
 
+    pub fn retire_latest_hidden_software_store(&mut self) -> Option<i32> {
+        if !self.presents_to_client
+            || !self.stores_are_retired_while_hidden
+            || self.shown_in_remote_layer
+            || self.frame_without_store_in_flight
+            || self.painted_frame.as_ref().is_none_or(PaintedFrame::draws_video)
+        {
+            return None;
+        }
+        self.backing_stores.retire_latest_software_store()
+    }
+
     /// Answers false where the stores could not be added back to the one kept, so that the context needs a whole new
     /// allocation.
     pub fn restore_stores_retired_while_hidden(

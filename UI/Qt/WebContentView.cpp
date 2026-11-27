@@ -319,6 +319,10 @@ WebContentView::WebContentView(QWidget* window, Optional<u64> hub_view_id, WebCo
             schedule_repaint();
 #endif
         }
+#ifdef AK_OS_LINUX
+        if (backing_stores().has_usable_front_bitmap())
+            emit full_page_frame_available();
+#endif
     };
 
     on_cursor_change = [this](auto cursor) {
@@ -1236,6 +1240,14 @@ void WebContentView::paintEvent(QPaintEvent*)
     if (bitmap) {
         QImage q_image(bitmap->scanline_u8(0), bitmap->width(), bitmap->height(), bitmap->pitch(), QImage::Format_RGB32);
         QRect source_rect(0, 0, bitmap_size.width(), bitmap_size.height());
+        auto right_edge_height = bitmap->height();
+#    ifdef AK_OS_LINUX
+        bool const is_preview = backing_stores().is_showing_compact_backup();
+        if (is_preview) {
+            source_rect = q_image.rect();
+            right_edge_height = bitmap_size.height();
+        }
+#    endif
 
         auto background_color = page_background_color();
         auto fallback_color = QColor(background_color.red(), background_color.green(), background_color.blue());
@@ -1248,10 +1260,18 @@ void WebContentView::paintEvent(QPaintEvent*)
             return;
         }
 
-        painter.drawImage(QPoint(0, 0), q_image, source_rect);
+#    ifdef AK_OS_LINUX
+        if (is_preview) {
+            painter.setRenderHint(QPainter::SmoothPixmapTransform);
+            painter.drawImage(QRect(0, 0, bitmap_size.width(), bitmap_size.height()), q_image, source_rect);
+        } else
+#    endif
+        {
+            painter.drawImage(QPoint(0, 0), q_image, source_rect);
+        }
 
         if (bitmap_size.width() < m_viewport_size.width()) {
-            painter.fillRect(bitmap_size.width(), 0, m_viewport_size.width() - bitmap_size.width(), bitmap->height(), fallback_color);
+            painter.fillRect(bitmap_size.width(), 0, m_viewport_size.width() - bitmap_size.width(), right_edge_height, fallback_color);
         }
         if (bitmap_size.height() < m_viewport_size.height()) {
             painter.fillRect(0, bitmap_size.height(), m_viewport_size.width(), m_viewport_size.height() - bitmap_size.height(), fallback_color);
@@ -1338,6 +1358,22 @@ bool WebContentView::holds_displayed_frame() const
 
 void WebContentView::take_visible_snapshot(Function<void(QImage)> on_snapshot)
 {
+#ifdef AK_OS_LINUX
+    if (backing_stores().is_showing_compact_backup()) {
+        // A preview can be drawn immediately, but a screenshot must use the next full-resolution frame.
+        auto* wait_for_frame = new QTimer(this);
+        wait_for_frame->setSingleShot(true);
+        QObject::connect(this, &WebContentView::full_page_frame_available, wait_for_frame, [wait_for_frame] { wait_for_frame->start(0); }, Qt::SingleShotConnection);
+        QObject::connect(wait_for_frame, &QTimer::timeout, this, [self = QPointer { this }, page_id = backing_stores_page_id(), expected_url = url(), wait_for_frame, on_snapshot = AK::move(on_snapshot)] {
+            wait_for_frame->deleteLater();
+            if (!self || page_id != self->backing_stores_page_id() || expected_url != self->url())
+                return;
+            on_snapshot(self->backing_stores().has_usable_front_bitmap() ? self->visible_snapshot() : QImage {});
+        });
+        wait_for_frame->start(500);
+        return;
+    }
+#endif
     if (holds_displayed_frame() || !current_paintable().has_value()) {
         on_snapshot(visible_snapshot());
         return;

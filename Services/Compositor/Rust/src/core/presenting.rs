@@ -852,6 +852,39 @@ impl CompositorCore {
         }
     }
 
+    pub fn retire_hidden_software_frames(&self, context_ids: &[CompositorContextId], now: MonotonicTime) {
+        if !cfg!(target_os = "linux") || self.gpu.has_gpu {
+            return;
+        }
+
+        let _entered = self.enter();
+        // Making the replacement previews takes work in the browser process. Leave time for it between batches.
+        let mut frames_left = 8;
+        for &context_id in context_ids {
+            let (Some(context), Some(presenting)) =
+                (self.context_if_present(context_id), self.presenting_of(context_id))
+            else {
+                continue;
+            };
+            let context = context.borrow();
+            if context.visibility() != ContextVisibility::Hidden || context.parent_context_id().is_some() {
+                continue;
+            }
+            let Some(presentation_id) = context.bound_presentation() else {
+                continue;
+            };
+            if let Some(bitmap_id) = presenting.borrow_mut().retire_latest_hidden_software_store() {
+                self.raster
+                    .retire_published_stores(presentation_id.0, context_id, &[bitmap_id]);
+                frames_left -= 1;
+                if frames_left == 0 {
+                    break;
+                }
+            }
+        }
+        self.finish_entry(now);
+    }
+
     pub(super) fn retire_backing_stores_of_hidden_context(&self, context_id: CompositorContextId) {
         let (Some(context), Some(presenting)) = (self.context_if_present(context_id), self.presenting_of(context_id))
         else {

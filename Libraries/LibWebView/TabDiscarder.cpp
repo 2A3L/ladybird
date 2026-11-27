@@ -4,11 +4,13 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <AK/QuickSort.h>
 #include <LibCore/Platform/MemoryPressure.h>
 #include <LibCore/Timer.h>
 #include <LibWebView/Application.h>
 #include <LibWebView/TabDiscarder.h>
 #include <LibWebView/ViewImplementation.h>
+#include <LibWebView/WebContentPage.h>
 
 namespace WebView {
 
@@ -70,6 +72,27 @@ void TabDiscarder::check_tabs()
     //     next check sees whether the system still needs more. The tab the user saw least recently goes first, but a
     //     tab whose processes all host other tabs too frees little, so one that lets a process exit goes before it.
     if (Core::Platform::system_memory_pressure() == Core::Platform::MemoryPressure::Critical) {
+#ifdef AK_OS_LINUX
+        Vector<ViewImplementation*> hidden_views;
+        constexpr auto keep_full_frame = DiscardBlockers::NotATab | DiscardBlockers::Visible | DiscardBlockers::Pinned
+            | DiscardBlockers::CurrentTabOfWindow | DiscardBlockers::Loading | DiscardBlockers::Crashed
+            | DiscardBlockers::PlayingAudio | DiscardBlockers::RecentlyPlayedAudio | DiscardBlockers::CapturingAudio
+            | DiscardBlockers::OwnsAView;
+        ViewImplementation::for_each_view([&](ViewImplementation& view) {
+            if (!view.hidden_since().has_value() || view.discard_requested()
+                || has_any_flag(view.discard_blockers(ViewImplementation::DiscardReason::MemoryPressure, now), keep_full_frame))
+                return IterationDecision::Continue;
+            hidden_views.append(&view);
+            return IterationDecision::Continue;
+        });
+        quick_sort(hidden_views, [](auto* left, auto* right) { return *left->hidden_since() < *right->hidden_since(); });
+        Vector<Web::CompositorContextId> hidden_contexts;
+        hidden_contexts.ensure_capacity(hidden_views.size());
+        for (auto* view : hidden_views)
+            hidden_contexts.unchecked_append(view->page().compositor_context_id());
+        Application::the().retire_hidden_software_frames(move(hidden_contexts));
+#endif
+
         ViewImplementation* least_recently_seen = nullptr;
         ViewImplementation* least_recently_seen_ending_a_process = nullptr;
         auto seen_less_recently = [](ViewImplementation& view, ViewImplementation* other) {

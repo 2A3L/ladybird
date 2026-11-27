@@ -39,6 +39,11 @@ public:
     Optional<Frame> displayed_frame() const;
 
     bool has_usable_front_bitmap() const { return m_has_usable_front_bitmap; }
+    bool is_showing_compact_backup() const
+    {
+        return !m_frame_shown_in_remote_layer.has_value() && !m_has_usable_front_bitmap && m_has_backup
+            && m_backup.id == compact_backup_bitmap_id;
+    }
     i32 front_bitmap_id() const { return m_front_bitmap.id; }
     Vector<Gfx::SharedImageBuffer const*> shared_image_buffers() const;
 
@@ -49,6 +54,8 @@ public:
     virtual ErrorOr<void> install(Vector<i32> bitmap_ids, Vector<Gfx::SharedImage>);
     virtual ErrorOr<void> add(Vector<i32> bitmap_ids, Vector<Gfx::SharedImage>);
     virtual void retire(ReadonlySpan<i32> bitmap_ids);
+    // Replaces a retired frame's pixels with a smaller preview, keeping the frame's original presentation size.
+    void replace_backup_bitmap(NonnullOwnPtr<Gfx::SharedImageBuffer>);
 
     struct PresentationResult {
         bool did_swap { false };
@@ -80,6 +87,8 @@ protected:
     bool refuses_backing_stores() const { return m_refuses_backing_stores; }
 
 private:
+    static constexpr i32 compact_backup_bitmap_id = -2;
+
     struct SharedBitmap {
         i32 id { -1 };
         Web::DevicePixelSize last_painted_size;
