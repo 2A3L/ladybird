@@ -478,7 +478,7 @@ public:
         });
 
         m_search_tabs_action = make_action(WebView::ui_text("&Search Tabs…"sv));
-        m_search_tabs_action->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_A));
+        m_search_tabs_action->setShortcuts({ QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_A), QKeySequence(Qt::CTRL | Qt::Key_K) });
         QObject::connect(m_search_tabs_action, &QAction::triggered, this, []() {
             if (auto* window = Application::the().active_window_if_any())
                 window->show_all_tabs();
@@ -494,6 +494,25 @@ public:
         m_open_file_action = make_action(WebView::ui_text("&Open File…"sv));
         m_open_file_action->setShortcut(QKeySequence(QKeySequence::StandardKey::Open));
         QObject::connect(m_open_file_action, &QAction::triggered, this, []() { Application::the().open_file(); });
+
+        m_save_page_action = make_action(WebView::ui_text("Save Page As…"sv));
+        m_save_page_action->setShortcut(QKeySequence(QKeySequence::StandardKey::Save));
+        QObject::connect(m_save_page_action, &QAction::triggered, this, []() {
+            auto& application = Application::the();
+            auto* tab = application.active_tab();
+            if (!tab || !tab->is_loaded())
+                return;
+
+            auto& view = tab->view();
+            auto url = view.url();
+            if (url.scheme() != "http"sv && url.scheme() != "https"sv) {
+                QMessageBox::information(application.active_window_if_any(), "Ladybird", translate_to_qstring(WebView::ui_text("Only HTTP and HTTPS pages can be saved."sv)));
+                return;
+            }
+
+            // shortcut: Save the response at the current URL. An offline page archive would need to capture its subresources.
+            view.download_url(url, RemoteView::PromptForPath::Yes);
+        });
 
         m_open_location_action = make_action(WebView::ui_text("Open &Location…"sv));
         m_open_location_action->setShortcuts({ QKeySequence(Qt::CTRL | Qt::Key_L), QKeySequence(Qt::ALT | Qt::Key_D) });
@@ -680,6 +699,7 @@ private:
     QAction* m_search_tabs_action { nullptr };
     QAction* m_move_focus_action { nullptr };
     QAction* m_open_file_action { nullptr };
+    QAction* m_save_page_action { nullptr };
     QAction* m_open_settings_action { nullptr };
     QAction* m_open_downloads_action { nullptr };
     QAction* m_toggle_bookmark_bar_action { nullptr };
@@ -3157,8 +3177,10 @@ QMenuBar* Application::create_application_menu_bar(ForBrowserWindow for_browser_
         file_menu->addAction(close_current_tab_action());
     file_menu->addSeparator();
     file_menu->addAction(open_file_action());
-    if (for_browser_window == ForBrowserWindow::Yes)
+    if (for_browser_window == ForBrowserWindow::Yes) {
+        file_menu->addAction(save_page_action());
         file_menu->addAction(open_location_action());
+    }
     file_menu->addAction(open_downloads_action());
     file_menu->addSeparator();
     file_menu->addAction(quit_action());
@@ -3276,6 +3298,7 @@ DEFINE_APP_MENU_GETTER(QAction, open_previous_tab_action);
 DEFINE_APP_MENU_GETTER(QAction, search_tabs_action);
 DEFINE_APP_MENU_GETTER(QAction, move_focus_action);
 DEFINE_APP_MENU_GETTER(QAction, open_file_action);
+DEFINE_APP_MENU_GETTER(QAction, save_page_action);
 DEFINE_APP_MENU_GETTER(QAction, open_settings_action);
 DEFINE_APP_MENU_GETTER(QAction, open_downloads_action);
 DEFINE_APP_MENU_GETTER(QAction, toggle_bookmark_bar_action);

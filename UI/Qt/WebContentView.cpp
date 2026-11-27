@@ -782,6 +782,7 @@ static bool is_browser_reserved_shortcut(QKeyEvent const& event)
     // WebContent to decide whether the page wants to suppress them.
     if (event.matches(QKeySequence::StandardKey::Close)
         || event.matches(QKeySequence::StandardKey::New)
+        || event.matches(QKeySequence::StandardKey::Save)
         || event.matches(QKeySequence::StandardKey::Quit))
         return true;
 
@@ -797,7 +798,7 @@ static bool is_browser_reserved_shortcut(QKeyEvent const& event)
     if (modifiers == (Qt::ControlModifier | Qt::ShiftModifier) && key == Qt::Key_B)
         return true;
 
-    if (modifiers == Qt::ControlModifier && (key == Qt::Key_L || key == Qt::Key_Tab || key == Qt::Key_PageDown))
+    if (modifiers == Qt::ControlModifier && (key == Qt::Key_K || key == Qt::Key_L || key == Qt::Key_Tab || key == Qt::Key_PageDown))
         return true;
 
     if (modifiers == (Qt::ControlModifier | Qt::ShiftModifier) && (key == Qt::Key_Tab || key == Qt::Key_Backtab))

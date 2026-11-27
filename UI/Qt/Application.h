@@ -205,6 +205,7 @@ public:
     QAction* search_tabs_action();
     QAction* move_focus_action();
     QAction* open_file_action();
+    QAction* save_page_action();
     QAction* open_settings_action();
     QAction* open_downloads_action();
     QAction* toggle_bookmark_bar_action();

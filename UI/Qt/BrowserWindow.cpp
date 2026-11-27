@@ -499,6 +499,7 @@ void BrowserWindow::initialize_application_actions()
     addAction(application.search_tabs_action());
     addAction(application.move_focus_action());
     addAction(application.open_file_action());
+    addAction(application.save_page_action());
     addAction(application.open_settings_action());
     addAction(application.open_downloads_action());
     addAction(application.toggle_bookmark_bar_action());
@@ -552,6 +553,7 @@ void BrowserWindow::initialize_ladybird_menu()
     m_ladybird_menu->addAction(application.new_window_action());
     m_ladybird_menu->addAction(application.new_private_window_action());
     m_ladybird_menu->addAction(application.reopen_recently_closed_tab_action());
+    m_ladybird_menu->addAction(application.save_page_action());
     if (m_is_private == WebView::IsPrivate::Yes) {
         auto* restart_private_session_action = m_ladybird_menu->addAction(QString());
         bind_ui_text(*restart_private_session_action, WebView::ui_text("Start a Fresh Private Session…"sv), [restart_private_session_action](QString const& text) {

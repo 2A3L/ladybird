@@ -135,6 +135,8 @@
         "&Search Tabs…": "&Buscar pestañas…",
         "Move &Focus Between Toolbar and Page": "Mover el &foco entre la barra de herramientas y la página",
         "&Open File…": "Abrir &archivo…",
+        "Save Page As…": "Guardar página como…",
+        "Only HTTP and HTTPS pages can be saved.": "Solo se pueden guardar páginas HTTP y HTTPS.",
         "Open &Location…": "Abrir &ubicación…",
         "&Stop": "&Detener",
         "&Find in Page…": "&Buscar en la página…",
