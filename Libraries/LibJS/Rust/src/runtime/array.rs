@@ -563,11 +563,6 @@ pub fn sort_indexed_properties<'vm>(
 
     // 4. Sort items using an implementation-defined sequence of calls to SortCompare. If any such call returns an abrupt completion, stop before performing any further calls to SortCompare or steps in this algorithm and return that Completion Record.
 
-    // Perform sorting by merge sort. This isn't as efficient compared to quick sort, but
-    // quicksort can't be used in all cases because the spec requires Array.prototype.sort()
-    // to be stable. FIXME: when initially scanning through the array, maintain a flag
-    // for if an unstable sort would be indistinguishable from a stable sort (such as just
-    // just strings or numbers), and in that case use quick sort instead for better performance.
     array_merge_sort(vm, sort_compare, &items)?;
 
     // 5. Return items.
