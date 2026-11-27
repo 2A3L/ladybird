@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<script src="../include.js"></script>
+<style>
+    #definite {
+        display: grid;
+        width: 324px;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 6px 12px;
+    }
+
+    #subgrid {
+        display: grid;
+        grid-column: span 2;
+        grid-template-columns: subgrid;
+    }
+
+    #indefinite {
+        display: grid;
+        width: max-content;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        column-gap: 12px;
+    }
+
+    #auto-minimum {
+        display: grid;
+        width: 160px;
+        grid-template-columns: 1fr 1fr;
+    }
+</style>
+<div id="definite">
+    <div id="subgrid">
+        <div></div>
+        <div><div style="width: 160px; height: 30px"></div></div>
+    </div>
+    <div></div>
+    <div id="second-row" style="height: 14px"></div>
+</div>
+<div id="indefinite">
+    <div><div style="width: 84px"></div></div>
+    <div><div style="width: 12px"></div></div>
+</div>
+<div id="auto-minimum">
+    <div><div style="width: 110px"></div></div>
+    <div><div style="width: 20px"></div></div>
+</div>
+<script>
+    test(() => {
+        const definite = document.getElementById("definite");
+        const subgrid = document.getElementById("subgrid");
+        const secondRow = document.getElementById("second-row");
+        function reportDefinite() {
+            const grid = definite.getBoundingClientRect();
+            const secondColumn = subgrid.lastElementChild.getBoundingClientRect();
+            const thirdColumn = subgrid.nextElementSibling.getBoundingClientRect();
+            const y = secondRow.getBoundingClientRect().top - grid.top;
+            println(`definite: ${secondColumn.x - grid.x}/${secondColumn.width}, ${thirdColumn.x - grid.x}/${thirdColumn.width}, row 2 at ${y}, height ${grid.height}`);
+        }
+        reportDefinite();
+        const newContent = document.createElement("div");
+        newContent.style.cssText = "width: 180px; height: 42px";
+        subgrid.lastElementChild.replaceChildren(newContent);
+        definite.style.width = "354px";
+        reportDefinite();
+
+        for (const id of ["indefinite", "auto-minimum"]) {
+            const grid = document.getElementById(id);
+            const width = grid.getBoundingClientRect().width;
+            const columns = [...grid.children].map(child => child.getBoundingClientRect().width);
+            println(`${id}: ${width}, columns ${columns.join(", ")}`);
+        }
+    });
+</script>

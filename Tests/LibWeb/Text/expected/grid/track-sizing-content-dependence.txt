@@ -1,0 +1,4 @@
+definite: 112/100, 224/100, row 2 at 36, height 50
+definite: 122/110, 244/110, row 2 at 48, height 62
+indefinite: 180, columns 84, 84
+auto-minimum: 160, columns 110, 50
