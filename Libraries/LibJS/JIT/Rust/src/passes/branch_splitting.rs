@@ -55,10 +55,11 @@ fn is_movable(graph: &Graph, node: NodeId) -> bool {
     if data.op == Op::AssumeValid {
         return true;
     }
-    let properties = data.op.properties();
+    let info = data.op.info();
+    let properties = info.properties;
     data.frame_state.is_none()
-        && data.op.exit_kind().is_none()
-        && !data.op.is_control()
+        && info.exit_kind.is_none()
+        && !info.is_control
         && !properties.can_lazy_exit
         && !properties.is_call
         && !properties.runs_code
