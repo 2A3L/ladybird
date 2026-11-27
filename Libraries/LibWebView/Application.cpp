@@ -18,6 +18,7 @@
 #include <LibCore/Directory.h>
 #include <LibCore/Environment.h>
 #include <LibCore/File.h>
+#include <LibCore/Platform/MemoryPressure.h>
 #include <LibCore/StandardPaths.h>
 #include <LibCore/StatsLog.h>
 #include <LibCore/System.h>
@@ -1830,6 +1831,10 @@ void Application::launch_spare_web_content_process()
     Core::deferred_invoke([this]() {
         m_has_queued_task_to_launch_spare_web_content_process = false;
 
+        // Check while preparing the spare, outside the path that takes it to open a tab.
+        if (m_tab_discarder && Core::Platform::system_memory_pressure() == Core::Platform::MemoryPressure::Critical)
+            return;
+
         auto web_content_client = create_web_content_client(default_session(), allocate_page_id());
         if (web_content_client.is_error()) {
             dbgln("Unable to create spare web content client: {}", web_content_client.error());
@@ -1839,7 +1844,15 @@ void Application::launch_spare_web_content_process()
         m_spare_web_content_process = web_content_client.release_value();
         if (auto process = m_process_manager->find_child(m_spare_web_content_process->child_id()); process.has_value())
             process->set_title("(spare)"_utf16);
+        if (m_tab_discarder)
+            m_tab_discarder->schedule_check();
     });
+}
+
+void Application::close_spare_web_content_process()
+{
+    auto spare = m_spare_web_content_process.release_nonnull();
+    spare->close_server_if_unused();
 }
 
 // DevTools hears of every change to a jar, whoever made it. Each tab whose page keeps its storage in the changed

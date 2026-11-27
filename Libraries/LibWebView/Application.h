@@ -477,6 +477,8 @@ protected:
     bool has_spare_web_content_process() const { return m_spare_web_content_process; }
 
 private:
+    friend class TabDiscarder;
+
     ErrorOr<void> create_profile(Optional<StringView> profile_name, Optional<StringView> profile_path, bool temporary_profile);
     void create_mach_port_server(ByteString const& profile_identity);
     void update_website_color_scheme();
@@ -485,6 +487,7 @@ private:
     ErrorOr<void> launch_services();
     static void install_experimental_cache_storage_store(BrowsingSession&);
     void launch_spare_web_content_process();
+    void close_spare_web_content_process();
     enum class CompositorLaunch {
         Now,
         WhenPlatformFeaturesAreCurrent,

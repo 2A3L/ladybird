@@ -16,8 +16,8 @@
 
 namespace WebView {
 
-// Discards the tabs that the user doesn't see, and wouldn't miss for now, when the system is about to run out of
-// memory, or once they were hidden for as long as the user's settings allow.
+// Closes the spare WebContent process and discards hidden tabs when the system is about to run out of memory.
+// Tabs are also discarded once they were hidden for as long as the user's settings allow.
 class WEBVIEW_API TabDiscarder {
     AK_MAKE_NONCOPYABLE(TabDiscarder);
     AK_MAKE_NONMOVABLE(TabDiscarder);
@@ -28,7 +28,8 @@ public:
     TabDiscarder();
     ~TabDiscarder();
 
-    // NB: Only a hidden tab may be discarded, so the tabs are checked only while there is one.
+    // Check while there is a hidden tab or a spare process whose memory can be reclaimed.
+    void schedule_check();
     static void did_hide_a_tab();
 
     // How long a tab must stay hidden before it is discarded, if hidden tabs are discarded at all.

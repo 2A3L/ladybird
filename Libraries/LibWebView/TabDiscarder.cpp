@@ -35,7 +35,6 @@ TabDiscarder::TabDiscarder()
 {
     VERIFY(!s_the);
     s_the = this;
-    m_timer->start();
 }
 
 TabDiscarder::~TabDiscarder()
@@ -45,8 +44,13 @@ TabDiscarder::~TabDiscarder()
 
 void TabDiscarder::did_hide_a_tab()
 {
-    if (s_the && !s_the->m_timer->is_active())
-        s_the->m_timer->start();
+    if (s_the)
+        s_the->schedule_check();
+}
+
+void TabDiscarder::schedule_check()
+{
+    m_timer->start();
 }
 
 void TabDiscarder::check_tabs()
@@ -59,8 +63,20 @@ void TabDiscarder::check_tabs()
         has_hidden_tab = true;
         return IterationDecision::Break;
     });
-    if (!has_hidden_tab) {
+    auto& application = Application::the();
+    auto has_spare_web_content_process = application.has_spare_web_content_process();
+    if (!has_hidden_tab && !has_spare_web_content_process) {
         m_timer->stop();
+        return;
+    }
+
+    auto memory_pressure_is_critical = Core::Platform::system_memory_pressure() == Core::Platform::MemoryPressure::Critical;
+    if (memory_pressure_is_critical && has_spare_web_content_process)
+        application.close_spare_web_content_process();
+
+    if (!has_hidden_tab) {
+        if (memory_pressure_is_critical)
+            m_timer->stop();
         return;
     }
 
@@ -69,7 +85,8 @@ void TabDiscarder::check_tabs()
     // NB: The memory of a discarded tab comes back as its processes exit, so one tab is discarded at a time, and the
     //     next check sees whether the system still needs more. The tab the user saw least recently goes first, but a
     //     tab whose processes all host other tabs too frees little, so one that lets a process exit goes before it.
-    if (Core::Platform::system_memory_pressure() == Core::Platform::MemoryPressure::Critical) {
+    // If the spare was closed, give the system until the next check to reclaim its memory before discarding a tab.
+    if (memory_pressure_is_critical && !has_spare_web_content_process) {
         ViewImplementation* least_recently_seen = nullptr;
         ViewImplementation* least_recently_seen_ending_a_process = nullptr;
         auto seen_less_recently = [](ViewImplementation& view, ViewImplementation* other) {
