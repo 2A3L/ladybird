@@ -2011,58 +2011,64 @@ pub fn array_merge_sort(
         return Ok(());
     }
 
-    let left = MarkedVec::with_capacity(vm, size / 2);
-    let right = MarkedVec::with_capacity(vm, size / 2 + (size & 1));
+    let scratch = MarkedVec::with_capacity(vm, size / 2);
+    merge_sort_range(arr_to_sort, &scratch, compare_func, 0, size)
+}
 
-    for i in 0..size {
-        let value = arr_to_sort.get(i).expect("i is below the size");
-        if i < size / 2 {
-            left.push(value);
-        } else {
-            right.push(value);
-        }
+fn merge_sort_range(
+    items: &MarkedVec<'_, Value>,
+    scratch: &MarkedVec<'_, Value>,
+    compare_func: &dyn Fn(Value, Value) -> ThrowCompletionOr<f64>,
+    start: usize,
+    end: usize,
+) -> ThrowCompletionOr<()> {
+    if end - start <= 1 {
+        return Ok(());
     }
 
-    array_merge_sort(vm, compare_func, &left)?;
-    array_merge_sort(vm, compare_func, &right)?;
+    let middle = start + (end - start) / 2;
+    merge_sort_range(items, scratch, compare_func, start, middle)?;
+    merge_sort_range(items, scratch, compare_func, middle, end)?;
+    merge_ranges(items, scratch, compare_func, start, middle, end)
+}
 
-    // NB: Every element is written back in order, so this overwrites arr_to_sort in place; a throwing comparison leaves
-    //     it half merged.
-    let mut sorted_count = 0;
-    let mut append = |value: Value| {
-        arr_to_sort.set(sorted_count, value);
-        sorted_count += 1;
-    };
+fn merge_ranges(
+    items: &MarkedVec<'_, Value>,
+    scratch: &MarkedVec<'_, Value>,
+    compare_func: &dyn Fn(Value, Value) -> ThrowCompletionOr<f64>,
+    start: usize,
+    middle: usize,
+    end: usize,
+) -> ThrowCompletionOr<()> {
+    scratch.clear();
+    scratch.extend_from_slice(&items.values()[start..middle]);
 
+    let left_len = middle - start;
     let mut left_index = 0;
-    let mut right_index = 0;
+    let mut right_index = middle;
+    let mut output = start;
 
-    while left_index < left.len() && right_index < right.len() {
-        let x = left.get(left_index).expect("the index is below the size");
-        let y = right.get(right_index).expect("the index is below the size");
+    // The unconsumed left elements keep output behind the unread right half.
+    // Both halves stay rooted through callbacks, including overwritten elements in scratch.
+    while left_index < left_len && right_index < end {
+        let x = scratch.get(left_index).expect("the index is below the left length");
+        let y = items.get(right_index).expect("the index is below the end");
 
         // INTEROP: The later element is passed as the first argument, and the earlier one stays first unless it compares
         //          below it. Most other engines do the same, and server rendered pages depend on it when they sort with
         //          an inconsistent comparator such as `() => 1`, which then has to leave the order unchanged.
-        let comparison_result = compare_func(y, x)?;
-
-        if comparison_result < 0.0 {
-            append(y);
+        if compare_func(y, x)? < 0.0 {
+            items.set(output, y);
             right_index += 1;
         } else {
-            append(x);
+            items.set(output, x);
             left_index += 1;
         }
+        output += 1;
     }
 
-    while left_index < left.len() {
-        append(left.get(left_index).expect("the index is below the size"));
-        left_index += 1;
-    }
-
-    while right_index < right.len() {
-        append(right.get(right_index).expect("the index is below the size"));
-        right_index += 1;
+    if left_index < left_len {
+        items.values_mut()[output..end].copy_from_slice(&scratch.values()[left_index..]);
     }
 
     Ok(())
