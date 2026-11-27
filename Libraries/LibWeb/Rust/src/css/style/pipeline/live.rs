@@ -1545,14 +1545,14 @@ impl Live {
                 .map(|&(node, _, next)| (node, next))
                 .collect()
         });
-        let live_from = |mut node: Option<StyleNodeID>| {
-            while let Some(current) = node {
-                if tree.is_live(current) {
-                    return Some(current);
-                }
-                node = departed_next.get(&current).copied().flatten();
-            }
-            None
+        let mut past_departed = HashMap::default();
+        let mut live_from = |node: Option<StyleNodeID>| {
+            first_retained_sibling(
+                node,
+                |sibling| tree.is_live(sibling),
+                |sibling| departed_next.get(&sibling).copied().flatten(),
+                &mut past_departed,
+            )
         };
         // What an element arriving or leaving changes for its later siblings, as all its facts
         // appearing or disappearing.
@@ -1590,9 +1590,12 @@ impl Live {
             if !left && restyled_whole(projection.parent(node)) {
                 continue;
             }
-            let Some(first_later_sibling) = live_from(first_later_sibling)
-                .and_then(|sibling| first_not_arrived(sibling, &arrived, next_sibling, &mut past_arrived))
-            else {
+            let Some(first_later_sibling) = first_retained_sibling(
+                live_from(first_later_sibling),
+                |sibling| !arrived.contains(&sibling),
+                next_sibling,
+                &mut past_arrived,
+            ) else {
                 continue;
             };
             let triggers = match left {
@@ -2885,27 +2888,25 @@ impl Hints {
     }
 }
 
-/// The first of `first` and its later siblings not in `arrived`, as `next` tells them, remembering in `past_arrived`
-/// what it finds for each one it walks over: a run of arrived siblings is walked once.
-fn first_not_arrived(
-    first: StyleNodeID,
-    arrived: &HashSet<StyleNodeID>,
+/// Find the first retained sibling, remembering each skipped sibling's result for this transaction.
+fn first_retained_sibling(
+    mut current: Option<StyleNodeID>,
+    is_retained: impl Fn(StyleNodeID) -> bool,
     next: impl Fn(StyleNodeID) -> Option<StyleNodeID>,
-    past_arrived: &mut HashMap<StyleNodeID, Option<StyleNodeID>>,
+    known: &mut HashMap<StyleNodeID, Option<StyleNodeID>>,
 ) -> Option<StyleNodeID> {
     let mut walked: SmallVec<[StyleNodeID; 16]> = SmallVec::new();
-    let mut current = Some(first);
     let found = loop {
-        let Some(sibling) = current.filter(|sibling| arrived.contains(sibling)) else {
+        let Some(sibling) = current.filter(|&sibling| !is_retained(sibling)) else {
             break current;
         };
-        if let Some(&known) = past_arrived.get(&sibling) {
-            break known;
+        if let Some(&found) = known.get(&sibling) {
+            break found;
         }
         walked.push(sibling);
         current = next(sibling);
     };
-    past_arrived.extend(walked.into_iter().map(|sibling| (sibling, found)));
+    known.extend(walked.into_iter().map(|sibling| (sibling, found)));
     found
 }
 
@@ -4763,9 +4764,9 @@ mod tests {
         let steps = Cell::new(0);
         let mut past_arrived = HashMap::default();
         for first in 1..SIBLINGS {
-            let found = first_not_arrived(
-                StyleNodeID::element(first),
-                &arrived,
+            let found = first_retained_sibling(
+                Some(StyleNodeID::element(first)),
+                |sibling| !arrived.contains(&sibling),
                 next_of(&steps),
                 &mut past_arrived,
             );
@@ -4774,7 +4775,25 @@ mod tests {
         assert!(steps.get() <= SIBLINGS);
 
         let all: HashSet<StyleNodeID> = (1..=SIBLINGS).map(StyleNodeID::element).collect();
-        let found = first_not_arrived(StyleNodeID::element(1), &all, next_of(&steps), &mut HashMap::default());
+        let found = first_retained_sibling(
+            Some(StyleNodeID::element(1)),
+            |sibling| !all.contains(&sibling),
+            next_of(&steps),
+            &mut HashMap::default(),
+        );
         assert_eq!(found, None);
+    }
+
+    #[test]
+    fn runs_of_departed_siblings_are_walked_once_with_or_without_a_survivor() {
+        let survivor = SIBLINGS / 2;
+        let is_live = |sibling| sibling == StyleNodeID::element(survivor);
+        let steps = Cell::new(0);
+        let mut known = HashMap::default();
+        for first in 1..=SIBLINGS {
+            let found = first_retained_sibling(Some(StyleNodeID::element(first)), is_live, next_of(&steps), &mut known);
+            assert_eq!(found, (first <= survivor).then(|| StyleNodeID::element(survivor)));
+        }
+        assert_eq!(steps.get(), SIBLINGS - 1);
     }
 }
