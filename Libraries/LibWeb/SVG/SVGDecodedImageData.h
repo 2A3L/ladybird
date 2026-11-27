@@ -31,6 +31,8 @@ public:
     static NonnullRefPtr<DecodePromise> decode(GC::Ref<Page>, URL::URL const&, ReadonlyBytes encoded_svg);
     virtual ~SVGDecodedImageData() override;
 
+    static WEB_API void release_cached_raster_frames();
+
     virtual Optional<Gfx::DecodedImageFrame> default_frame(Gfx::IntSize = {}) const override;
     virtual Optional<Gfx::DecodedImageFrame> current_frame(Gfx::IntSize = {}) const override;
 
@@ -91,6 +93,7 @@ class SVGDecodedImageData::SVGPageClient final : public PageClient {
     GC_DECLARE_ALLOCATOR(SVGDecodedImageData::SVGPageClient);
 
     friend class ScopedSVGImageDocument;
+    friend class SVGDecodedImageData;
 
 public:
     static GC::Ref<SVGPageClient> create(Page& page)

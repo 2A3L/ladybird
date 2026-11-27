@@ -99,6 +99,7 @@
 #include <LibWeb/Platform/EventLoopPlugin.h>
 #include <LibWeb/Platform/FontPlugin.h>
 #include <LibWeb/Platform/RemoteImageCodecPlugin.h>
+#include <LibWeb/SVG/SVGDecodedImageData.h>
 #include <LibWeb/Selection/Selection.h>
 #include <LibWeb/ServiceWorker/CacheStorageConnection.h>
 #include <LibWeb/UIEvents/InputTypes.h>
@@ -177,6 +178,7 @@ void ConnectionFromClient::release_memory()
     // NB: This is deferred so that garbage collection runs with as little on the stack as possible.
     Core::deferred_invoke([] {
         is_pending = false;
+        Web::SVG::SVGDecodedImageData::release_cached_raster_frames();
         release_memory_of_this_thread();
     });
 }
