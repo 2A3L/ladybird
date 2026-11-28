@@ -378,6 +378,28 @@ TEST_CASE(closing_a_tab_demotes_it)
     EXPECT_EQ(count_entry_rows(*database, first), 0);
 }
 
+TEST_CASE(opening_a_tab_only_rewrites_placements_shifted_by_the_insert)
+{
+    auto database = create_session_database();
+    auto store = TRY_OR_FAIL(SessionStore::create(*database));
+    auto window = TRY_OR_FAIL(store->window_opened());
+    auto first = open_tab(*store, window, "https://a.example/"sv);
+    TRY_OR_FAIL(store->tab_pinned_changed(first, true));
+
+    TRY_OR_FAIL(database->execute_raw("CREATE TEMP TABLE PlacementUpdates (tab_id INTEGER NOT NULL);"sv));
+    TRY_OR_FAIL(database->execute_raw("CREATE TEMP TRIGGER CountPlacement AFTER UPDATE OF tab_ordinal ON SessionTabs BEGIN INSERT INTO PlacementUpdates VALUES (NEW.id); END;"sv));
+    auto last = open_tab(*store, window, "https://b.example/"sv);
+    EXPECT_EQ(select_i64(*database, "SELECT COUNT(*) FROM PlacementUpdates;"_string), 0);
+
+    auto inserted = TRY_OR_FAIL(store->tab_opened({ .window_id = window, .initial_url = parse_url("https://c.example/"sv), .insertion_index = 1, .is_active = SessionStore::IsActive::Yes }));
+    EXPECT_EQ(select_i64(*database, "SELECT COUNT(*) FROM PlacementUpdates;"_string), 1);
+    EXPECT_EQ(select_i64(*database, "SELECT tab_id FROM PlacementUpdates;"_string), last);
+    EXPECT_EQ(select_i64(*database, "SELECT id FROM SessionTabs WHERE tab_ordinal = 0 AND pinned = 1;"_string), first);
+    EXPECT_EQ(select_i64(*database, "SELECT id FROM SessionTabs WHERE tab_ordinal = 1;"_string), inserted);
+    EXPECT_EQ(select_i64(*database, "SELECT id FROM SessionTabs WHERE tab_ordinal = 2;"_string), last);
+    EXPECT_EQ(select_i64(*database, "SELECT active_tab_index FROM Sessions;"_string), 1);
+}
+
 TEST_CASE(a_pin_writes_through_and_survives_restart)
 {
     auto database = create_session_database();
