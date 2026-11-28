@@ -321,15 +321,15 @@ void ProcessManager::check_web_content_memory_use()
         //     disturb all tabs, and none of them can tell the user why it was ended.
         if (auto process = find_child(*child_id); !process.has_value() || process->type() != ProcessType::WebContent)
             continue;
-        auto usage = Core::Platform::process_resource_usage(*info);
-        if (!usage.has_value())
+        auto memory = Core::Platform::process_attributed_memory_bytes(*info);
+        if (!memory.has_value())
             continue;
-        if (usage->attributed_memory_bytes > m_web_content_memory_limit) {
-            helpers_over_limit.append({ *child_id, usage->attributed_memory_bytes });
+        if (*memory > m_web_content_memory_limit) {
+            helpers_over_limit.append({ *child_id, *memory });
             continue;
         }
         auto warning = m_memory_limit_warnings.get(*child_id);
-        if (usage->attributed_memory_bytes <= warning_threshold) {
+        if (*memory <= warning_threshold) {
             // NB: A helper that only dipped below the threshold keeps its wait, so that one that goes back and forth
             //     across the threshold is not asked each time it crosses.
             if (warning.has_value() && now >= warning->next_time + warning->interval)
@@ -340,7 +340,7 @@ void ProcessManager::check_web_content_memory_use()
             continue;
         auto interval = warning.has_value() ? min(warning->interval + warning->interval, longest_warning_interval) : first_warning_interval;
         m_memory_limit_warnings.set(*child_id, { now + interval, interval });
-        helpers_near_limit.append({ *child_id, usage->attributed_memory_bytes });
+        helpers_near_limit.append({ *child_id, *memory });
     }
 
     for (auto const& helper : helpers_near_limit) {

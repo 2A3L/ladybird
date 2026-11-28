@@ -17,5 +17,6 @@ struct ProcessResourceUsage {
 };
 
 CORE_API Optional<ProcessResourceUsage> process_resource_usage(ProcessInfo const&);
+CORE_API Optional<u64> process_attributed_memory_bytes(ProcessInfo const&);
 
 }

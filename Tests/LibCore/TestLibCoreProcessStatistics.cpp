@@ -38,6 +38,11 @@ TEST_CASE(memory_usage_and_attributed_memory_agree)
     auto attributed = own_attributed_memory();
     auto difference = usage > attributed ? usage - attributed : attributed - usage;
     EXPECT(difference < 4 * MiB);
+
+    auto watchdog_memory = Core::Platform::process_attributed_memory_bytes(Core::Platform::ProcessInfo { Core::System::getpid() });
+    VERIFY(watchdog_memory.has_value());
+    auto watchdog_difference = *watchdog_memory > attributed ? *watchdog_memory - attributed : attributed - *watchdog_memory;
+    EXPECT(watchdog_difference < 4 * MiB);
 }
 
 TEST_CASE(anonymous_memory_counts)

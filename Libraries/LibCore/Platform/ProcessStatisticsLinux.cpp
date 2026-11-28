@@ -23,9 +23,9 @@ static auto ncpu_online = sysconf(_SC_NPROCESSORS_ONLN);
 //     out would hide most of the memory a renderer spends on pixels.
 // NB: Pages freed with MADV_FREE stay counted until the kernel reclaims them. Only /proc/pid/smaps_rollup tells them
 //     apart, and reading it walks every page of the process, which takes tens of milliseconds for a large one.
-static Optional<u64> own_memory_bytes(pid_t pid)
+Optional<u64> process_attributed_memory_bytes(ProcessInfo const& process)
 {
-    auto file = Core::File::open(ByteString::formatted("/proc/{}/status", pid), Core::File::OpenMode::Read);
+    auto file = Core::File::open(ByteString::formatted("/proc/{}/status", process.pid), Core::File::OpenMode::Read);
     if (file.is_error())
         return {};
     auto contents = file.value()->read_until_eof();
@@ -108,7 +108,7 @@ ErrorOr<void> update_process_statistics(ProcessStatistics& statistics)
         if (res != 2)
             return Error::from_string_literal("Failed to parse /proc/pid/stat");
 
-        if (auto footprint = own_memory_bytes(process->pid); footprint.has_value())
+        if (auto footprint = process_attributed_memory_bytes(*process); footprint.has_value())
             process->memory_usage_bytes = *footprint;
 
         u64 const time_process = utime + stime;
@@ -143,7 +143,7 @@ Optional<ProcessResourceUsage> process_resource_usage(ProcessInfo const& process
     auto system = fields[12].to_number<u64>();
     if (!user.has_value() || !system.has_value() || user_hz <= 0)
         return {};
-    auto memory = own_memory_bytes(process.pid);
+    auto memory = process_attributed_memory_bytes(process);
     if (!memory.has_value())
         return {};
     Checked<u64> cpu_time = *user;

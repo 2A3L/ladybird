@@ -119,6 +119,20 @@ ErrorOr<void> update_process_statistics(ProcessStatistics& statistics)
     return {};
 }
 
+Optional<u64> process_attributed_memory_bytes(ProcessInfo const& process)
+{
+    if (!MACH_PORT_VALID(process.task_name_port.port()))
+        return {};
+    task_vm_info_data_t memory {};
+    mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
+    if (task_info(process.task_name_port.port(), TASK_VM_INFO, reinterpret_cast<task_info_t>(&memory), &count) != KERN_SUCCESS)
+        return {};
+
+    // The footprint ledger charges owned memory rather than all resident mappings.
+    // It includes compressed memory and excludes uncharged shared mappings.
+    return memory.phys_footprint;
+}
+
 Optional<ProcessResourceUsage> process_resource_usage(ProcessInfo const& process)
 {
     if (!MACH_PORT_VALID(process.task_name_port.port()))
@@ -131,16 +145,13 @@ Optional<ProcessResourceUsage> process_resource_usage(ProcessInfo const& process
     count = TASK_THREAD_TIMES_INFO_COUNT;
     if (task_info(process.task_name_port.port(), TASK_THREAD_TIMES_INFO, reinterpret_cast<task_info_t>(&threads), &count) != KERN_SUCCESS)
         return {};
-    task_vm_info_data_t memory {};
-    count = TASK_VM_INFO_COUNT;
-    if (task_info(process.task_name_port.port(), TASK_VM_INFO, reinterpret_cast<task_info_t>(&memory), &count) != KERN_SUCCESS)
+    auto memory = process_attributed_memory_bytes(process);
+    if (!memory.has_value())
         return {};
     // NB: Basic task times contain terminated threads; thread times contain live threads.
-    //     The footprint ledger charges owned memory rather than all resident mappings.
-    //     It includes compressed memory and excludes uncharged shared mappings.
     return ProcessResourceUsage {
         time_value_to_microseconds(basic.user_time) + time_value_to_microseconds(basic.system_time) + time_value_to_microseconds(threads.user_time) + time_value_to_microseconds(threads.system_time),
-        memory.phys_footprint,
+        *memory,
     };
 }
 

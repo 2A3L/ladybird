@@ -20,4 +20,9 @@ Optional<ProcessResourceUsage> process_resource_usage(ProcessInfo const&)
     return {};
 }
 
+Optional<u64> process_attributed_memory_bytes(ProcessInfo const&)
+{
+    return {};
+}
+
 }
