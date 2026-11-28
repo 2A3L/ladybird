@@ -6509,7 +6509,7 @@ fn resolve_intrinsic_track_sizes(
     tracks: &mut [Track<'_>],
     items: &mut [ItemContribution],
     available: AvailableSize,
-    has_flexible: bool,
+    functions: TrackSizingFunctions,
 ) {
     // https://www.w3.org/TR/css-grid-2/#algo-content
     // 12.5. Resolve Intrinsic Track Sizes
@@ -6563,14 +6563,16 @@ fn resolve_intrinsic_track_sizes(
         // 2. For content-based minimums: Next continue to increase the base size of tracks with a min track
         //    sizing function of min-content or max-content by distributing extra space as needed to account for
         //    these items' min-content contributions.
-        distribute_base_sizes_for_span_group(
-            tracks,
-            group,
-            SpaceDistributionPhase::MinContent,
-            available,
-            |track| track.min_sizing.is_min_content() || track.min_sizing.is_max_content(),
-            |item| item.min_content,
-        );
+        if functions.has_min_content_minimum || functions.has_max_content_minimum {
+            distribute_base_sizes_for_span_group(
+                tracks,
+                group,
+                SpaceDistributionPhase::MinContent,
+                available,
+                |track| track.min_sizing.is_min_content() || track.min_sizing.is_max_content(),
+                |item| item.min_content,
+            );
+        }
 
         // 3. For max-content minimums: Next, if the grid container is being sized under a max-content constraint,
         //    continue to increase the base size of tracks with a min track sizing function of auto or max-content by
@@ -6592,14 +6594,16 @@ fn resolve_intrinsic_track_sizes(
         // In all cases, continue to increase the base size of tracks with a min track sizing function of
         // max-content by distributing extra space as needed to account for these items' max-content
         // contributions.
-        distribute_base_sizes_for_span_group(
-            tracks,
-            group,
-            SpaceDistributionPhase::MaxContent,
-            available,
-            |track| track.min_sizing.is_max_content(),
-            |item| item.max_content,
-        );
+        if functions.has_max_content_minimum {
+            distribute_base_sizes_for_span_group(
+                tracks,
+                group,
+                SpaceDistributionPhase::MaxContent,
+                available,
+                |track| track.min_sizing.is_max_content(),
+                |item| item.max_content,
+            );
+        }
 
         // 4. If at this point any track's growth limit is now less than its base size, increase its growth limit to
         //    match its base size.
@@ -6658,7 +6662,7 @@ fn resolve_intrinsic_track_sizes(
         LimitedMaxContent,
         MaxContent,
     }
-    let phases: &[_] = if has_flexible && !items.is_empty() {
+    let phases: &[_] = if functions.has_flexible_maximum && !items.is_empty() {
         &[
             FlexibleMinimumPhase::Intrinsic,
             FlexibleMinimumPhase::MinContent,
@@ -6897,9 +6901,9 @@ pub(crate) fn run_track_sizing<MaximumSize>(
     // 12.3. Track Sizing Algorithm
     //
     // 1. Initialize Track Sizes
-    let has_flexible = initialize_track_sizes(tracks, available);
+    let functions = initialize_track_sizes(tracks, available);
     // 2. Resolve Intrinsic Track Sizes
-    resolve_intrinsic_track_sizes(tracks, items, available, has_flexible);
+    resolve_intrinsic_track_sizes(tracks, items, available, functions);
     // 3. Maximize Tracks
     let saved_base_sizes = tracks
         .iter()
@@ -6923,7 +6927,7 @@ pub(crate) fn run_track_sizing<MaximumSize>(
         maximize_tracks(tracks, gap_size, AvailableSize::definite(maximum_size));
     }
     // 4. Expand Flexible Tracks
-    if has_flexible {
+    if functions.has_flexible_maximum {
         // https://drafts.csswg.org/css-grid/#algo-flex-tracks
         // 12.7. Expand Flexible Tracks
         // This step sizes flexible tracks using the largest value it can assign to an fr without exceeding
@@ -7539,11 +7543,18 @@ impl<'pass> Track<'pass> {
     }
 }
 
-pub(crate) fn initialize_track_sizes(tracks: &mut [Track<'_>], available: AvailableSize) -> bool {
+#[derive(Clone, Copy, Default)]
+struct TrackSizingFunctions {
+    has_flexible_maximum: bool,
+    has_min_content_minimum: bool,
+    has_max_content_minimum: bool,
+}
+
+fn initialize_track_sizes(tracks: &mut [Track<'_>], available: AvailableSize) -> TrackSizingFunctions {
     // https://www.w3.org/TR/css-grid-2/#algo-init
     // 12.4. Initialize Track Sizes
     // Initialize each track’s base size and growth limit.
-    let mut has_flexible_tracks = false;
+    let mut functions = TrackSizingFunctions::default();
     for track in tracks {
         track.infinitely_growable = false;
         if track.is_gap {
@@ -7562,6 +7573,12 @@ pub(crate) fn initialize_track_sizes(tracks: &mut [Track<'_>], available: Availa
             track.base_size = track.min_sizing.resolve(available);
         } else if track.min_sizing.is_intrinsic(available) {
             track.base_size = CssPixels::default();
+            // OPTIMIZATION: A span group cannot grow any base sizes in a phase with no matching tracks.
+            // Items spanning flexible tracks are handled separately.
+            if track.max_sizing.flex_factor().is_none() {
+                functions.has_min_content_minimum |= track.min_sizing.is_min_content();
+                functions.has_max_content_minimum |= track.min_sizing.is_max_content();
+            }
         } else {
             unreachable!("flexible values cannot be minimum track sizing functions");
         }
@@ -7569,7 +7586,7 @@ pub(crate) fn initialize_track_sizes(tracks: &mut [Track<'_>], available: Availa
         if track.max_sizing.is_fixed(available) {
             track.growth_limit = Some(track.max_sizing.resolve(available));
         } else if track.max_sizing.flex_factor().is_some() {
-            has_flexible_tracks = true;
+            functions.has_flexible_maximum = true;
             track.growth_limit = None;
         } else if track.max_sizing.is_intrinsic(available) {
             track.growth_limit = None;
@@ -7584,7 +7601,7 @@ pub(crate) fn initialize_track_sizes(tracks: &mut [Track<'_>], available: Availa
             track.growth_limit = Some(track.base_size);
         }
     }
-    has_flexible_tracks
+    functions
 }
 
 /// The size of an fr as `space` divided by a sum of flex factors, keeping the precision of fractional flex factors.
@@ -7689,8 +7706,8 @@ mod tests {
     fn intrinsic_distribution_keeps_span_groups_independent() {
         let mut tracks = [Track::auto(); 3];
         let mut items = [contribution(0..1, 10), contribution(1..3, 40), contribution(0..3, 80)];
-        let has_flexible = initialize_track_sizes(&mut tracks, AvailableSize::MaxContent);
-        resolve_intrinsic_track_sizes(&mut tracks, &mut items, AvailableSize::MaxContent, has_flexible);
+        let functions = initialize_track_sizes(&mut tracks, AvailableSize::MaxContent);
+        resolve_intrinsic_track_sizes(&mut tracks, &mut items, AvailableSize::MaxContent, functions);
         assert_eq!(tracks.map(|track| track.base_size.to_int()), [20, 30, 30]);
         for track in &tracks {
             assert_eq!(track.growth_limit, Some(track.base_size));
@@ -7769,8 +7786,8 @@ mod tests {
                 ];
                 tracks[2].min_sizing = TrackSizingFunction::MinContent;
                 tracks[4].max_sizing = TrackSizingFunction::Flex(0.5);
-                let has_flexible = initialize_track_sizes(&mut tracks, available);
-                resolve_intrinsic_track_sizes(&mut tracks, &mut items, available, has_flexible);
+                let functions = initialize_track_sizes(&mut tracks, available);
+                resolve_intrinsic_track_sizes(&mut tracks, &mut items, available, functions);
                 let sizes = tracks.map(|track| (track.base_size, track.growth_limit));
                 if let Some(expected) = expected {
                     assert_eq!(sizes, expected);

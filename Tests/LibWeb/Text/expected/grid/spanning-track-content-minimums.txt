@@ -1,0 +1,4 @@
+auto: last column at 20, grid height 12
+min-content: last column at 55, grid height 12
+max-content: last column at 85, grid height 6
+auto: last column at 20, grid height 12
