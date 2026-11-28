@@ -259,7 +259,7 @@ ErrorOr<NonnullOwnPtr<HistoryStore>> HistoryStore::create(Database::Database& da
             h.title,
             h.visit_count,
             h.last_visited_time,
-            f.png_data,
+            CASE WHEN ?2 THEN (SELECT png_data FROM Favicons WHERE hash = h.favicon_hash) END,
             h.direct_visit_count,
             h.last_qualifying_visit_time,
             h.last_direct_visit_time,
@@ -267,8 +267,7 @@ ErrorOr<NonnullOwnPtr<HistoryStore>> HistoryStore::create(Database::Database& da
             h.decayed_direct_score,
             h.score_updated_at
         FROM History AS h
-        LEFT JOIN Favicons AS f ON f.hash = h.favicon_hash
-        WHERE h.url = ?;
+        WHERE h.url = ?1;
     )#"sv));
     statements.search_entries = TRY(database.prepare_statement(R"#(
         SELECT
@@ -990,7 +989,7 @@ HistoryStore::PersistedStorage::~PersistedStorage() = default;
 
 void HistoryStore::PersistedStorage::record_visit(String const& url, Optional<String> const& title, UnixDateTime visited_at, HistoryVisitTransition transition)
 {
-    auto entry = entry_after_visit(entry_for_url(url), url, title, visited_at, transition);
+    auto entry = entry_after_visit(entry_for_url(url, false), url, title, visited_at, transition);
     m_database->execute_statement(
         m_statements.upsert_entry,
         {},
@@ -1026,6 +1025,11 @@ void HistoryStore::PersistedStorage::update_favicon(String const& url, String co
 
 Optional<HistoryEntry> HistoryStore::PersistedStorage::entry_for_url(String const& url)
 {
+    return entry_for_url(url, true);
+}
+
+Optional<HistoryEntry> HistoryStore::PersistedStorage::entry_for_url(String const& url, bool include_favicon)
+{
     Optional<HistoryEntry> entry;
 
     m_database->execute_statement(
@@ -1053,7 +1057,7 @@ Optional<HistoryEntry> HistoryStore::PersistedStorage::entry_for_url(String cons
             };
             return {};
         },
-        url);
+        url, include_favicon);
 
     return entry;
 }

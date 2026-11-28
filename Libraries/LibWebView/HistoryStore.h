@@ -173,6 +173,8 @@ private:
         virtual void remove_entries_accessed_since(UnixDateTime since) override;
 
     private:
+        Optional<HistoryEntry> entry_for_url(String const& url, bool include_favicon);
+
         NonnullRefPtr<Database::Database> m_database;
         Statements m_statements;
     };

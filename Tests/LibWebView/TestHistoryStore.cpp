@@ -91,7 +91,12 @@ static void expect_history_autocomplete_entries_include_metadata(WebView::Histor
 
     store.record_visit(google_url, "Google"_string, UnixDateTime::from_seconds_since_epoch(20));
     store.update_favicon(google_url, favicon_hash);
+    store.record_visit(google_url, {}, UnixDateTime::from_seconds_since_epoch(30));
     store.record_visit(github_url, "Ladybird repository"_string, UnixDateTime::from_seconds_since_epoch(10));
+
+    auto entry = store.entry_for_url(google_url);
+    VERIFY(entry.has_value() && entry->favicon_png.has_value());
+    EXPECT(entry->favicon_png->bytes() == "foo"sv.bytes());
 
     auto entries = store.autocomplete_entries("goo"sv, 8);
     VERIFY(entries.size() == 1);
@@ -99,8 +104,8 @@ static void expect_history_autocomplete_entries_include_metadata(WebView::Histor
     EXPECT_EQ(entries[0].title, Optional<String> { "Google"_string });
     VERIFY(entries[0].favicon_png.has_value());
     EXPECT(entries[0].favicon_png->bytes() == "foo"sv.bytes());
-    EXPECT_EQ(entries[0].visit_count, 1u);
-    EXPECT_EQ(entries[0].last_visited_time, UnixDateTime::from_seconds_since_epoch(20));
+    EXPECT_EQ(entries[0].visit_count, 2u);
+    EXPECT_EQ(entries[0].last_visited_time, UnixDateTime::from_seconds_since_epoch(30));
 }
 
 static void expect_history_ranking_signals_track_visit_intent(WebView::HistoryStore& store)
