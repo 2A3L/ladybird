@@ -683,11 +683,7 @@ pub unsafe extern "C" fn rust_gc_marker_visit_ephemeron_without_pinning(
 /// Has the threads that help mark give back the memory they no longer use, see Pool::release_unused_memory().
 #[unsafe(no_mangle)]
 pub extern "C" fn rust_gc_marker_release_unused_helper_memory() {
-    abort_on_panic(|| {
-        if let Some(pool) = Pool::the() {
-            pool.release_unused_memory();
-        }
-    });
+    abort_on_panic(Pool::release_unused_memory);
 }
 
 /// Marks every cell of the heaps that the roots reach, and adds up the bytes they take.

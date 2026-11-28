@@ -60,6 +60,8 @@ pub(crate) struct Pool {
     ran_since_release: AtomicBool,
 }
 
+static POOL: OnceLock<Option<&'static Pool>> = OnceLock::new();
+
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex.lock().unwrap_or_else(PoisonError::into_inner)
 }
@@ -67,7 +69,6 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 impl Pool {
     /// The pool of the process, which is created on first use. There is none if only one thread marks.
     pub(crate) fn the() -> Option<&'static Pool> {
-        static POOL: OnceLock<Option<&'static Pool>> = OnceLock::new();
         *POOL.get_or_init(|| {
             let helper_count = thread_count() - 1;
             if helper_count == 0 {
@@ -120,11 +121,14 @@ impl Pool {
     /// done. What a helper allocates while it marks, such as room in its queue, is freed by the thread that collects
     /// once the collection is over, and the allocator keeps it for the helper until the helper allocates again, which an
     /// idle helper never does.
-    pub(crate) fn release_unused_memory(&'static self) {
-        if !self.ran_since_release.load(Ordering::Relaxed) {
+    pub(crate) fn release_unused_memory() {
+        let Some(&Some(pool)) = POOL.get() else {
+            return;
+        };
+        if !pool.ran_since_release.load(Ordering::Relaxed) {
             return;
         }
-        let Some(helpers) = self.try_acquire() else {
+        let Some(helpers) = pool.try_acquire() else {
             return;
         };
         unsafe fn release(_: *const (), _: usize) {
@@ -133,7 +137,7 @@ impl Pool {
         // SAFETY: release() takes nothing, and any thread may call it.
         unsafe { helpers.run(release, core::ptr::null(), || {}) };
         // NB: Running this task set the flag as well. No other task runs while the helpers are taken.
-        self.ran_since_release.store(false, Ordering::Relaxed);
+        pool.ran_since_release.store(false, Ordering::Relaxed);
     }
 
     fn run_helper(&self, index: usize) {
