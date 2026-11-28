@@ -20,6 +20,7 @@
 namespace HTTP {
 
 static constexpr u32 INDEX_SCHEMA_BASELINE_VERSION = 5u;
+static constexpr size_t MAXIMUM_MISSING_CACHE_KEYS = 256;
 
 static ReadonlyBytes encode_cache_key_for_database(CacheDigest const& key)
 {
@@ -321,10 +322,7 @@ ErrorOr<void> CacheIndex::create_entry(CacheDigest const& cache_key, CacheDigest
         encode_cache_key_for_database(cache_key),
         encode_cache_key_for_database(vary_key)));
 
-    auto& entries = entries_for_cache_key(cache_key);
-    auto existing_entry_index = entries.find_first_index_if([&](auto const& existing_entry) {
-        return existing_entry.vary_key == vary_key;
-    });
+    auto entries = entries_for_cache_key(cache_key);
 
     if (auto result = m_database->try_execute_statement(m_statements.insert_entry, {}, encode_cache_key_for_database(cache_key), encode_cache_key_for_database(vary_key), entry.url, serialized_request_headers, serialized_response_headers, static_cast<i64>(entry.data_size), entry.request_time, entry.response_time, entry.last_access_time); result.is_error()) {
         // The row of the entry this one replaces is gone already, so the index no longer holds that entry either.
@@ -332,10 +330,18 @@ ErrorOr<void> CacheIndex::create_entry(CacheDigest const& cache_key, CacheDigest
         return result.release_error();
     }
 
-    if (existing_entry_index.has_value())
-        entries[*existing_entry_index] = move(entry);
-    else
-        entries.append(move(entry));
+    // If the lookup failed, leave the key uncached so the next read also loads any other variants.
+    if (entries.has_value()) {
+        auto existing_entry_index = entries->find_first_index_if([&](auto const& existing_entry) {
+            return existing_entry.vary_key == vary_key;
+        });
+        if (existing_entry_index.has_value())
+            (*entries)[*existing_entry_index] = move(entry);
+        else
+            entries->append(move(entry));
+    } else if (m_missing_cache_keys.remove(cache_key)) {
+        m_entries.ensure(cache_key).append(move(entry));
+    }
 
     adjust_total_estimated_size(static_cast<i64>(entry_size));
 
@@ -387,12 +393,14 @@ void CacheIndex::remove_entries_exceeding_cache_limit(OnEntryRemoved on_entry_re
 
 void CacheIndex::remove_variants_exceeding_limit(CacheDigest const& cache_key, CacheDigest const& vary_key_to_keep, OnEntryRemoved on_entry_removed)
 {
-    auto& entries = entries_for_cache_key(cache_key);
+    auto entries = entries_for_cache_key(cache_key);
+    if (!entries.has_value())
+        return;
 
-    while (entries.size() > MAXIMUM_CACHE_ENTRY_VARIANT_COUNT) {
+    while (entries->size() > MAXIMUM_CACHE_ENTRY_VARIANT_COUNT) {
         Optional<Entry const&> least_recently_accessed_entry;
 
-        for (auto const& entry : entries) {
+        for (auto const& entry : *entries) {
             if (entry.vary_key == vary_key_to_keep)
                 continue;
             if (!least_recently_accessed_entry.has_value() || entry.last_access_time < least_recently_accessed_entry->last_access_time)
@@ -430,6 +438,7 @@ void CacheIndex::remove_entries_accessed_since(UnixDateTime since, OnEntryRemove
         }
 
         m_entries.clear();
+        m_missing_cache_keys.clear();
         m_total_estimated_size = 0;
         if (on_total_estimated_size_change)
             on_total_estimated_size_change();
@@ -480,8 +489,12 @@ void CacheIndex::remove_entries_accessed_before(UnixDateTime before, OnEntryRemo
 
 void CacheIndex::remove_entries_for_cache_key(CacheDigest const& cache_key, OnEntryRemoved on_entry_removed)
 {
+    auto entries = entries_for_cache_key(cache_key);
+    if (!entries.has_value())
+        return;
+
     Vector<CacheDigest> vary_keys;
-    for (auto const& entry : entries_for_cache_key(cache_key))
+    for (auto const& entry : *entries)
         vary_keys.append(entry.vary_key);
 
     for (auto const& vary_key : vary_keys) {
@@ -539,10 +552,13 @@ void CacheIndex::update_last_access_time(CacheDigest const& cache_key, CacheDige
 
 Optional<CacheIndex::Entry const&> CacheIndex::find_entry(CacheDigest const& cache_key, HeaderList const& request_headers)
 {
-    auto& entries = entries_for_cache_key(cache_key);
+    auto entries = entries_for_cache_key(cache_key);
+    if (!entries.has_value())
+        return {};
+
     Optional<Entry const&> selected_entry;
 
-    for (auto const& entry : entries) {
+    for (auto const& entry : *entries) {
         if (create_vary_key(request_headers, entry.response_headers) != entry.vary_key)
             continue;
 
@@ -559,40 +575,52 @@ Optional<CacheIndex::Entry const&> CacheIndex::find_entry(CacheDigest const& cac
     return selected_entry;
 }
 
-Vector<CacheIndex::Entry>& CacheIndex::entries_for_cache_key(CacheDigest const& cache_key)
+Optional<Vector<CacheIndex::Entry>&> CacheIndex::entries_for_cache_key(CacheDigest const& cache_key)
 {
-    return m_entries.ensure(cache_key, [&]() {
-        Vector<Entry> entries;
-
-        auto result = m_database->try_execute_statement(
-            m_statements.select_entries,
-            [&](auto statement_id) -> ErrorOr<void> {
-                int column = 0;
-
-                auto vary_key = decode_cache_key_from_database(m_database->result_column<ByteBuffer>(statement_id, column++));
-                auto url = m_database->result_column<String>(statement_id, column++);
-                auto request_headers = m_database->result_column<ByteString>(statement_id, column++);
-                auto response_headers = m_database->result_column<ByteString>(statement_id, column++);
-                auto data_size = m_database->result_column<i64>(statement_id, column++);
-                auto request_time = m_database->result_column<UnixDateTime>(statement_id, column++);
-                auto response_time = m_database->result_column<UnixDateTime>(statement_id, column++);
-                auto last_access_time = m_database->result_column<UnixDateTime>(statement_id, column++);
-
-                if (!vary_key.has_value() || data_size < 0)
-                    return {};
-
-                entries.empend(vary_key.release_value(), move(url), deserialize_headers(request_headers), deserialize_headers(response_headers), static_cast<u64>(data_size), request_headers.length(), response_headers.length(), request_time, response_time, last_access_time);
-                return {};
-            },
-            encode_cache_key_for_database(cache_key));
-        // Entries that can't be read are missed, rather than served partly read.
-        if (result.is_error()) {
-            dbgln_if(HTTP_DISK_CACHE_DEBUG, "\033[36m[disk]\033[0m \033[31;1m{}:\033[0m {}", "Unable to read cache entries"sv, result.error());
-            entries.clear();
-        }
-
+    if (auto entries = m_entries.get(cache_key); entries.has_value())
         return entries;
-    });
+    if (m_missing_cache_keys.contains(cache_key))
+        return {};
+
+    Vector<Entry> entries;
+    bool saw_row = false;
+    auto result = m_database->try_execute_statement(
+        m_statements.select_entries,
+        [&](auto statement_id) -> ErrorOr<void> {
+            saw_row = true;
+            int column = 0;
+
+            auto vary_key = decode_cache_key_from_database(m_database->result_column<ByteBuffer>(statement_id, column++));
+            auto url = m_database->result_column<String>(statement_id, column++);
+            auto request_headers = m_database->result_column<ByteString>(statement_id, column++);
+            auto response_headers = m_database->result_column<ByteString>(statement_id, column++);
+            auto data_size = m_database->result_column<i64>(statement_id, column++);
+            auto request_time = m_database->result_column<UnixDateTime>(statement_id, column++);
+            auto response_time = m_database->result_column<UnixDateTime>(statement_id, column++);
+            auto last_access_time = m_database->result_column<UnixDateTime>(statement_id, column++);
+
+            if (!vary_key.has_value() || data_size < 0)
+                return {};
+
+            entries.empend(vary_key.release_value(), move(url), deserialize_headers(request_headers), deserialize_headers(response_headers), static_cast<u64>(data_size), request_headers.length(), response_headers.length(), request_time, response_time, last_access_time);
+            return {};
+        },
+        encode_cache_key_for_database(cache_key));
+    // Entries that can't be read are missed, rather than served partly read.
+    if (result.is_error()) {
+        dbgln_if(HTTP_DISK_CACHE_DEBUG, "\033[36m[disk]\033[0m \033[31;1m{}:\033[0m {}", "Unable to read cache entries"sv, result.error());
+        return {};
+    }
+
+    if (!entries.is_empty())
+        return m_entries.ensure(cache_key, [&] { return move(entries); });
+
+    if (!saw_row) {
+        if (m_missing_cache_keys.size() == MAXIMUM_MISSING_CACHE_KEYS)
+            (void)m_missing_cache_keys.take_first();
+        m_missing_cache_keys.set(cache_key);
+    }
+    return {};
 }
 
 bool CacheIndex::has_entry(CacheDigest const& cache_key, CacheDigest const& vary_key)
@@ -602,8 +630,10 @@ bool CacheIndex::has_entry(CacheDigest const& cache_key, CacheDigest const& vary
 
 Optional<CacheIndex::Entry&> CacheIndex::get_entry(CacheDigest const& cache_key, CacheDigest const& vary_key)
 {
-    auto& entries = entries_for_cache_key(cache_key);
-    return find_value(entries, [&](auto const& entry) { return entry.vary_key == vary_key; });
+    auto entries = entries_for_cache_key(cache_key);
+    if (!entries.has_value())
+        return {};
+    return find_value(*entries, [&](auto const& entry) { return entry.vary_key == vary_key; });
 }
 
 void CacheIndex::adjust_total_estimated_size(i64 delta)

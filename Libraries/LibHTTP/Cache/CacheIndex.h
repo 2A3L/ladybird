@@ -8,6 +8,7 @@
 
 #include <AK/Error.h>
 #include <AK/HashMap.h>
+#include <AK/HashTable.h>
 #include <AK/NonnullRawPtr.h>
 #include <AK/Time.h>
 #include <AK/Types.h>
@@ -95,7 +96,7 @@ private:
 
     CacheIndex(Database::Database&, Statements, Limits, i64 total_estimated_size);
 
-    Vector<Entry>& entries_for_cache_key(CacheDigest const& cache_key);
+    Optional<Vector<Entry>&> entries_for_cache_key(CacheDigest const& cache_key);
     Optional<Entry&> get_entry(CacheDigest const& cache_key, CacheDigest const& vary_key);
     void delete_entry(CacheDigest const& cache_key, CacheDigest const& vary_key);
     void adjust_total_estimated_size(i64 delta);
@@ -104,6 +105,7 @@ private:
     Statements m_statements;
 
     HashMap<CacheDigest, Vector<Entry>> m_entries;
+    OrderedHashTable<CacheDigest> m_missing_cache_keys;
 
     Limits m_limits;
     i64 m_total_estimated_size { 0 };

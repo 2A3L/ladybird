@@ -225,6 +225,56 @@ TEST_CASE(failed_statements_after_creation_do_not_abort)
     EXPECT(!state.index.find_entry(key(1), *request_headers).has_value());
 }
 
+TEST_CASE(failed_read_does_not_remember_missing_key)
+{
+    auto state = create_cache_index();
+
+    auto request_headers = HTTP::HeaderList::create();
+    auto response_headers = HTTP::HeaderList::create();
+    auto cache_key = key(1);
+    auto vary_key = HTTP::create_vary_key(*request_headers, *response_headers).value();
+    auto now = UnixDateTime::now();
+    TRY_OR_FAIL(state.index.create_entry(cache_key, vary_key, "https://example.com"_string, request_headers, response_headers, 10, now, now));
+    auto reloaded_index = TRY_OR_FAIL(HTTP::CacheIndex::create(*state.database, cache_directory()));
+
+    TRY_OR_FAIL(state.database->execute_raw("ALTER TABLE CacheIndex RENAME TO UnavailableCacheIndex;"sv));
+    EXPECT(!reloaded_index.find_entry(cache_key, *request_headers).has_value());
+    TRY_OR_FAIL(state.database->execute_raw("ALTER TABLE UnavailableCacheIndex RENAME TO CacheIndex;"sv));
+
+    auto entry = reloaded_index.find_entry(cache_key, *request_headers);
+    VERIFY(entry.has_value());
+    EXPECT_EQ(entry->data_size, 10u);
+}
+
+TEST_CASE(missing_cache_key_can_gain_and_lose_variants)
+{
+    auto state = create_cache_index();
+
+    auto first_request_headers = HTTP::HeaderList::create({ { "X-Variant"sv, "first"sv } });
+    auto second_request_headers = HTTP::HeaderList::create({ { "X-Variant"sv, "second"sv } });
+    auto response_headers = HTTP::HeaderList::create({ { "Vary"sv, "X-Variant"sv } });
+    auto cache_key = key(1);
+    auto first_vary_key = HTTP::create_vary_key(*first_request_headers, *response_headers).value();
+    auto second_vary_key = HTTP::create_vary_key(*second_request_headers, *response_headers).value();
+    auto now = UnixDateTime::now();
+
+    EXPECT(!state.index.find_entry(cache_key, *first_request_headers).has_value());
+    TRY_OR_FAIL(state.index.create_entry(cache_key, first_vary_key, "https://example.com"_string, first_request_headers, response_headers, 10, now, now));
+    EXPECT(!state.index.find_entry(cache_key, *second_request_headers).has_value());
+    TRY_OR_FAIL(state.index.create_entry(cache_key, second_vary_key, "https://example.com"_string, second_request_headers, response_headers, 20, now, now));
+
+    auto first_entry = state.index.find_entry(cache_key, *first_request_headers);
+    VERIFY(first_entry.has_value());
+    EXPECT_EQ(first_entry->data_size, 10u);
+    auto second_entry = state.index.find_entry(cache_key, *second_request_headers);
+    VERIFY(second_entry.has_value());
+    EXPECT_EQ(second_entry->data_size, 20u);
+
+    state.index.remove_entries_accessed_since(UnixDateTime::earliest(), {});
+    EXPECT(!state.index.find_entry(cache_key, *first_request_headers).has_value());
+    EXPECT(!state.index.find_entry(cache_key, *second_request_headers).has_value());
+}
+
 TEST_CASE(variants_per_cache_key_are_limited)
 {
     auto state = create_cache_index();
