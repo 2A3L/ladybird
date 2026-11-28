@@ -1333,6 +1333,10 @@ impl Live {
             if projection.children_were_connected(parent) {
                 children_scratch.extend(projection.children_on(TransactionFactSide::Before, parent));
             }
+            // An arriving child is restyled whole. Only surviving children can have moved positions.
+            if !children_scratch.iter().any(|&child| tree.is_live(child)) {
+                continue;
+            }
             let before_count = children_scratch.len();
             children_scratch.extend(projection.children(parent));
             let (before, now) = children_scratch.split_at(before_count);

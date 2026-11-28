@@ -1,0 +1,7 @@
+initial no A-E BS- C--
+all replaced yes D-E E-- FS-
+last survivor no G-E DS-
+reordered yes D-E GS-
+reinserted before style update no G-E DS-
+moved away no G--
+returned yes D-E GS-

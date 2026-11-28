@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<style>
+    #list > :nth-child(2 of .counted) > i { --start: S; }
+    #list > :nth-last-child(2 of .counted) > i { --end: E; }
+    #list:has(> .watched:nth-last-child(2 of .counted)) { --witness: yes; }
+</style>
+<div id="list"></div>
+<div id="other"></div>
+<script src="../include.js"></script>
+<script>
+    test(() => {
+        const list = document.getElementById("list");
+        function item(label, classes) {
+            const element = document.createElement("b");
+            element.className = classes;
+            element.append(document.createElement("i"));
+            element.firstChild.textContent = label;
+            return element;
+        }
+        function report(label) {
+            const witness = getComputedStyle(list).getPropertyValue("--witness") || "no";
+            const positions = Array.from(list.children, child => {
+                const style = getComputedStyle(child.firstChild);
+                return child.textContent + (style.getPropertyValue("--start") || "-") + (style.getPropertyValue("--end") || "-");
+            });
+            println(label + " " + witness + " " + positions.join(" "));
+        }
+
+        list.replaceChildren(item("A", "counted"), item("B", "counted watched"), item("C", ""));
+        report("initial");
+        const survivor = item("D", "counted watched");
+        list.replaceChildren(survivor, "text", item("E", ""), item("F", "counted"));
+        report("all replaced");
+        list.replaceChildren(item("G", "counted"), "text", survivor);
+        report("last survivor");
+        list.prepend(survivor);
+        report("reordered");
+        survivor.remove();
+        list.append(survivor);
+        report("reinserted before style update");
+        document.getElementById("other").append(survivor);
+        report("moved away");
+        list.prepend(survivor);
+        report("returned");
+    });
+</script>
