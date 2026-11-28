@@ -89,6 +89,18 @@ describe("Array.prototype.sort", () => {
         expect(arr[2].other_property == 2);
     });
 
+    test("keeps the captured elements alive when the comparator clears the source", () => {
+        const items = [{ key: 4 }, { key: 1 }, { key: 3 }, { key: 2 }];
+        items.sort((a, b) => {
+            if (items.length) {
+                items.length = 0;
+                gc();
+            }
+            return a.key - b.key;
+        });
+        expect(items.map(item => item.key)).toEqual([1, 2, 3, 4]);
+    });
+
     test("sorting a frozen singleton returns the array", () => {
         const array = Object.freeze([1]);
         expect(array.sort()).toBe(array);
