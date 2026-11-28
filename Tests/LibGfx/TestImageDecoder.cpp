@@ -1459,9 +1459,20 @@ TEST_CASE(test_webp_extended_lossless_animated)
 
     EXPECT_EQ(plugin_decoder->size(), Gfx::IntSize(990, 1050));
 
+    auto seeking_decoder = TRY_OR_FAIL(Gfx::WebPImageDecoderPlugin::create(file->bytes()));
+    auto last_frame = TRY_OR_FAIL(seeking_decoder->frame(7));
+    auto earlier_frame = TRY_OR_FAIL(seeking_decoder->frame(2));
+
     for (size_t frame_index = 0; frame_index < plugin_decoder->frame_count(); ++frame_index) {
         auto frame = TRY_OR_FAIL(plugin_decoder->frame(frame_index));
         EXPECT_EQ(frame.image->size(), Gfx::IntSize(990, 1050));
+        EXPECT_EQ(frame.duration, 100);
+
+        if (frame_index == 2 || frame_index == 7) {
+            auto const& sought_frame = frame_index == 2 ? earlier_frame : last_frame;
+            EXPECT_EQ(sought_frame.duration, frame.duration);
+            EXPECT(frame.image->diff(*sought_frame.image).identical);
+        }
 
         // This pixel happens to be the same color in all frames.
         EXPECT_EQ(frame.image->get_pixel(500, 700), Gfx::Color::Yellow);
