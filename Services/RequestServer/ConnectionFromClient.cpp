@@ -110,7 +110,6 @@ ConnectionFromClient::ConnectionFromClient(NonnullOwnPtr<IPC::Transport> transpo
     set_up_curl_multi(m_fetch_curl);
     auto result = curl_multi_setopt(m_fetch_curl.handle, CURLMOPT_MAX_HOST_CONNECTIONS, 6L);
     VERIFY(result == CURLM_OK);
-    set_up_curl_multi(m_websocket_curl);
 }
 
 void ConnectionFromClient::set_up_curl_multi(CurlMulti& multi)
@@ -157,8 +156,10 @@ ConnectionFromClient::~ConnectionFromClient()
 
     curl_multi_cleanup(m_fetch_curl.handle);
     m_fetch_curl.handle = nullptr;
-    curl_multi_cleanup(m_websocket_curl.handle);
-    m_websocket_curl.handle = nullptr;
+    if (m_websocket_curl.handle) {
+        curl_multi_cleanup(m_websocket_curl.handle);
+        m_websocket_curl.handle = nullptr;
+    }
 
     if (m_is_private == IsPrivate::Yes && --s_private_connection_count == 0) {
         clear_aia_state(IsPrivate::Yes);
@@ -552,6 +553,9 @@ void ConnectionFromClient::check_active_requests()
     int msgs_in_queue = 0;
     u64 completions_drained = 0;
     for (auto* multi_handle : { m_fetch_curl.handle, m_websocket_curl.handle }) {
+        if (!multi_handle)
+            continue;
+
         while (auto* msg = curl_multi_info_read(multi_handle, &msgs_in_queue)) {
             if (msg->msg != CURLMSG_DONE)
                 continue;
@@ -1069,6 +1073,9 @@ void ConnectionFromClient::open_websocket(u64 websocket_id, u64 originating_page
 
     if (auto const& path = default_certificate_path(); !path.is_empty())
         connection_info.set_root_certificates_path(path);
+
+    if (!m_websocket_curl.handle)
+        set_up_curl_multi(m_websocket_curl);
 
     auto impl = WebSocketImplCurl::create(m_websocket_curl.handle, m_is_private);
     impl->set_proxy(move(proxy));
