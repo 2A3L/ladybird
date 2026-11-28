@@ -1184,7 +1184,7 @@ void Application::open_urls_in_new_tabs(ReadonlySpan<URL::URL> urls) const
         open_url_in_new_tab(url, Web::HTML::ActivateTab::No);
 }
 
-ErrorOr<NonnullRefPtr<WebContentClient>> Application::create_web_content_client(BrowsingSession& session, Web::PageId initial_page_id, Optional<Web::HTML::CrossProcessId> navigable_to_adopt, Optional<Web::HTML::CrossProcessId> initial_document_state_id, Vector<Web::HTML::RemoteNavigableDescriptor> remote_navigables, Optional<Web::HTML::SessionHistoryEntryDescriptor> canonical_initial_history_entry, Web::HTML::VisibilityState system_visibility_state)
+ErrorOr<NonnullRefPtr<WebContentClient>> Application::create_web_content_client(BrowsingSession& session, Web::PageId initial_page_id, InitialPageCreation initial_page_creation, Optional<Web::HTML::CrossProcessId> navigable_to_adopt, Optional<Web::HTML::CrossProcessId> initial_document_state_id, Vector<Web::HTML::RemoteNavigableDescriptor> remote_navigables, Optional<Web::HTML::SessionHistoryEntryDescriptor> canonical_initial_history_entry, Web::HTML::VisibilityState system_visibility_state)
 {
     auto cross_process_id_allocator = allocate_cross_process_id_allocator();
     auto root_navigable_id = navigable_to_adopt.has_value() ? *navigable_to_adopt : cross_process_id_allocator.allocate();
@@ -1208,7 +1208,12 @@ ErrorOr<NonnullRefPtr<WebContentClient>> Application::create_web_content_client(
         entry.document_state.origin = URL::Origin::create_opaque();
         return entry;
     }();
-    client->async_initialize(initial_page_id, move(remote_navigables), root_navigable_id, cross_process_id_allocator, initial_history_entry, initial_document_id, system_visibility_state);
+    if (initial_page_creation == InitialPageCreation::OnSpareAdoption) {
+        VERIFY(!navigable_to_adopt.has_value() && remote_navigables.is_empty() && system_visibility_state == Web::HTML::VisibilityState::Hidden);
+        client->defer_spare_page({}, cross_process_id_allocator);
+    } else {
+        client->async_initialize(initial_page_id, move(remote_navigables), root_navigable_id, cross_process_id_allocator, initial_history_entry, initial_document_id, system_visibility_state);
+    }
 
     if (!navigable_to_adopt.has_value())
         client->set_initial_top_level_history_entry({}, move(initial_history_entry), initial_document_id);
@@ -1818,7 +1823,7 @@ ErrorOr<Application::ChildFrameWebContentProcess> Application::launch_child_fram
 {
     auto page_id = allocate_page_id();
     auto initial_document_state_id = initial_history_entry.document_state.id;
-    auto client = TRY(create_web_content_client(session_for_new_view(is_private), page_id, root_navigable_id, initial_document_state_id, move(remote_navigables), move(initial_history_entry), system_visibility_state));
+    auto client = TRY(create_web_content_client(session_for_new_view(is_private), page_id, InitialPageCreation::Immediate, root_navigable_id, initial_document_state_id, move(remote_navigables), move(initial_history_entry), system_visibility_state));
     return ChildFrameWebContentProcess {
         .client = move(client),
         .page_id = page_id,
@@ -1856,7 +1861,7 @@ void Application::launch_spare_web_content_process()
         if (m_tab_discarder && Core::Platform::system_memory_pressure() == Core::Platform::MemoryPressure::Critical)
             return;
 
-        auto web_content_client = create_web_content_client(default_session(), allocate_page_id());
+        auto web_content_client = create_web_content_client(default_session(), allocate_page_id(), InitialPageCreation::OnSpareAdoption);
         if (web_content_client.is_error()) {
             dbgln("Unable to create spare web content client: {}", web_content_client.error());
             return;

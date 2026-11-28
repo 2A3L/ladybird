@@ -86,6 +86,37 @@ bool connection_to_web_content_process_is_open(pid_t pid)
 
 }
 
+TEST_CASE(normal_tab_adopts_the_spare_and_displays_its_initial_document)
+{
+    Test::HeadlessTestEnvironment environment { "TestSpareWebContentProcess"sv };
+    auto app = TRY_OR_FAIL(environment.create_application<TestApplication>());
+    auto theme = load_theme();
+
+    auto first_tab = WebView::HeadlessWebView::create(theme, { 800, 600 });
+    auto spare_pid = wait_for_spare_web_content_process(*app);
+    auto private_tab = WebView::HeadlessWebView::create(theme, { 800, 600 }, WebView::IsPrivate::Yes);
+    EXPECT_NE(private_tab->web_content_pid(), spare_pid);
+
+    auto tab = WebView::HeadlessWebView::create(theme, { 800, 600 });
+    EXPECT_EQ(tab->web_content_pid(), spare_pid);
+    EXPECT(tab->permission_origin().is_opaque());
+    EXPECT(!tab->permission_origin().is_same_origin(first_tab->permission_origin()));
+
+    // Exercise the initial about:blank itself, including allocating IDs for its first child navigable.
+    Utf16String title;
+    bool crashed = false;
+    tab->on_title_change = [&](auto const& new_title) { title = new_title; };
+    tab->on_web_content_crashed = [&](auto) { crashed = true; };
+    tab->run_javascript(R"js(
+        const frame = document.createElement("iframe");
+        frame.onload = () => { document.title = [document.URL, document.visibilityState, frame.contentDocument.URL].join(" "); };
+        frame.srcdoc = "<p>child</p>";
+        document.body.append(frame);
+    )js"_string);
+    Core::EventLoop::current().spin_until([&] { return crashed || title == "about:blank visible about:srcdoc"sv; });
+    EXPECT(!crashed);
+}
+
 TEST_CASE(spare_is_dropped_when_its_process_exits)
 {
     Test::HeadlessTestEnvironment environment { "TestSpareWebContentProcess"sv };

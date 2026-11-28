@@ -114,6 +114,7 @@ public:
         m_initial_top_level_history_entry = move(entry);
         m_initial_top_level_document_id = document_id;
     }
+    void defer_spare_page(Badge<Application>, Web::HTML::CrossProcessIdAllocator);
     WebContentPage& open_initial_page_for_new_top_level_traversable();
     WebContentPage& open_page_for_new_top_level_traversable(Web::PageId, CanonicalTraversable&);
     void discard_page_of_undisplayed_top_level_traversable(Web::PageId);
@@ -303,6 +304,11 @@ private:
     HashMap<Web::PageId, NonnullRefPtr<WebContentPage>> m_pages;
     HashMap<Web::CompositorContextId, Optional<Web::PageId>> m_compositor_contexts;
     Optional<i32> m_compositor_connection_id;
+    struct DeferredSparePage {
+        Web::PageId page_id;
+        Web::HTML::CrossProcessIdAllocator id_allocator;
+    };
+    Optional<DeferredSparePage> m_deferred_spare_page;
     Optional<Web::PageId> m_unassigned_initial_page_id;
     Web::HTML::CrossProcessId m_root_navigable_id;
     Optional<Web::HTML::SessionHistoryEntryDescriptor> m_initial_top_level_history_entry;

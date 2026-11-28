@@ -400,12 +400,23 @@ void WebContentClient::remember_compositor_context(Web::CompositorContextId cont
     m_compositor_contexts.set(context_id, page_id);
 }
 
+void WebContentClient::defer_spare_page(Badge<Application>, Web::HTML::CrossProcessIdAllocator id_allocator)
+{
+    // An idle spare has no page yet and cannot act on behalf of its reserved ID.
+    m_deferred_spare_page = DeferredSparePage { m_unassigned_initial_page_id.release_value(), id_allocator };
+}
+
 WebContentPage& WebContentClient::open_initial_page_for_new_top_level_traversable()
 {
+    VERIFY(m_initial_top_level_history_entry.has_value());
+    if (m_deferred_spare_page.has_value()) {
+        auto spare = m_deferred_spare_page.release_value();
+        async_initialize(spare.page_id, {}, m_root_navigable_id, spare.id_allocator, *m_initial_top_level_history_entry, m_initial_top_level_document_id, Web::HTML::VisibilityState::Hidden);
+        m_unassigned_initial_page_id = spare.page_id;
+    }
     auto initial_page_id = m_unassigned_initial_page_id.release_value();
 
     // A tab's first process creates its traversable, in the page that displays the tab.
-    VERIFY(m_initial_top_level_history_entry.has_value());
     auto& traversable = CanonicalTraversable::create_a_new_top_level_traversable(m_root_navigable_id, {}, m_initial_top_level_history_entry.release_value(), m_initial_top_level_document_id);
     auto& page = open_page_for_new_top_level_traversable(initial_page_id, traversable);
     page.async_set_browsing_context_group(traversable.active_browsing_context().group()->id());
@@ -900,8 +911,7 @@ Messages::WebContentClient::DidRequestCookieResponse WebContentClient::did_reque
     if (auto* page = this->page(page_id))
         return page->did_request_cookie(environment_id, move(url), source);
 
-    // A spare process can request cookies for its initial page before a view adopts it. No document of that page is
-    // known here, so only a request with the HTTP source is answered.
+    // An initial page can request cookies before it has a view. Without a known document, only the HTTP source is answered.
     if (m_unassigned_initial_page_id != page_id || source != HTTP::Cookie::Source::Http)
         return HTTP::Cookie::VersionedCookie {};
 
