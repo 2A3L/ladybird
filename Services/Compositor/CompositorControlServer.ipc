@@ -1,4 +1,5 @@
 #include <AK/Optional.h>
+#include <AK/Vector.h>
 #include <LibCompositing/Types.h>
 #include <LibCompositing/UIOverlays.h>
 #include <LibGfx/Point.h>
@@ -36,4 +37,5 @@ endpoint CompositorControlServer
     set_context_presents_from_cpu_memory(Web::CompositorContextId context_id, bool presents_from_cpu_memory) =|
     set_context_scales_frames_to_fit(Web::CompositorContextId context_id, bool scales_frames_to_fit) =|
     crash() =|
+    [RustReceiver] retire_hidden_software_frames(Vector<Web::CompositorContextId> context_ids) =|
 }

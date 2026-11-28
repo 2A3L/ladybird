@@ -31,14 +31,15 @@ use core::hash::Hasher;
 use core::mem::discriminant;
 
 fn is_numbered(op: &Op) -> bool {
-    let properties = op.properties();
+    let info = op.info();
+    let properties = info.properties;
     properties.reads.is_empty()
         && properties.writes.is_empty()
         && !properties.allocates
         && !properties.runs_code
         && !properties.can_lazy_exit
         && !matches!(op, Op::Constant(_) | Op::Phi)
-        && !op.is_control()
+        && !info.is_control
 }
 
 pub fn run(graph: &mut Graph, work: &Zone) {

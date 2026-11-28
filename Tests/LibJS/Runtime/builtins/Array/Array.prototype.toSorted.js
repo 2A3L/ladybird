@@ -19,6 +19,28 @@ describe("normal behavior", () => {
         expect(b).toEqual([2, 4, 1, 3, 5]);
     });
 
+    test("keeps temporary objects alive during a reentrant comparator", () => {
+        const length = 67;
+        const items = new Proxy(
+            { length },
+            {
+                get(target, property) {
+                    if (property === "length") return target.length;
+                    return { key: (Number(property) * 17) % length };
+                },
+            }
+        );
+        let calls = 0;
+        const sorted = Array.prototype.toSorted.call(items, (a, b) => {
+            if (++calls % 13 === 0) {
+                gc();
+                expect([2, 1].sort()).toEqual([1, 2]);
+            }
+            return a.key - b.key;
+        });
+        expect(sorted.map(item => item.key)).toEqual(Array.from({ length }, (_, i) => i));
+    });
+
     test("is unscopable", () => {
         expect(Array.prototype[Symbol.unscopables].toSorted).toBeTrue();
         const array = [];

@@ -32,6 +32,10 @@ pub struct PaintedFrame {
 }
 
 impl PaintedFrame {
+    pub(super) fn draws_video(&self) -> bool {
+        !self.video_frame_ids.is_empty()
+    }
+
     pub fn draws_canvas(&self, canvas_id: u64) -> bool {
         self.canvas_content_generations.contains_key(&canvas_id)
     }

@@ -6,6 +6,7 @@
 
 #include <AK/NeverDestroyed.h>
 #include <AK/ScopeGuard.h>
+#include <AK/Time.h>
 #include <LibAudio/RecordStream.h>
 #include <LibGC/Heap.h>
 #include <LibGC/WeakHashMap.h>
@@ -48,10 +49,20 @@ struct DocumentObserverRoot : RefCounted<DocumentObserverRoot> {
 GC_DEFINE_ALLOCATOR(SVGDecodedImageData);
 GC_DEFINE_ALLOCATOR(SVGDecodedImageData::SVGPageClient);
 
-static GC::Ref<SVGDecodedImageData::SVGPageClient> shared_svg_page_client_for_page(GC::Ref<Page> host_page)
+static Optional<MonotonicTime> s_raster_cache_budget_expires_at;
+static constexpr auto raster_cache_trim_interval = AK::Duration::from_seconds(10);
+static constexpr size_t reduced_raster_cache_byte_budget = 16 * MiB;
+
+static auto& shared_svg_page_clients()
 {
     static NeverDestroyed<GC::WeakHashMap<Page, SVGDecodedImageData::SVGPageClient>> page_clients;
-    if (auto* page_client = page_clients->get(host_page))
+    return *page_clients;
+}
+
+static GC::Ref<SVGDecodedImageData::SVGPageClient> shared_svg_page_client_for_page(GC::Ref<Page> host_page)
+{
+    auto& page_clients = shared_svg_page_clients();
+    if (auto* page_client = page_clients.get(host_page))
         return *page_client;
 
     auto page_client = SVGDecodedImageData::SVGPageClient::create(*host_page);
@@ -59,7 +70,7 @@ static GC::Ref<SVGDecodedImageData::SVGPageClient> shared_svg_page_client_for_pa
     page->set_is_scripting_enabled(false);
     page_client->m_svg_page = page.ptr();
     page->set_top_level_traversable(HTML::LocalTraversableNavigable::create_a_new_top_level_traversable(page, nullptr, {}));
-    page_clients->set(host_page, page_client);
+    page_clients.set(host_page, page_client);
     return page_client;
 }
 
@@ -209,6 +220,16 @@ u64 SVGDecodedImageData::next_vector_content_identity()
 
 SVGDecodedImageData::~SVGDecodedImageData() = default;
 
+void SVGDecodedImageData::release_cached_raster_frames()
+{
+    // Active canvases may redraw immediately after a release, so briefly bound what they put back.
+    s_raster_cache_budget_expires_at = MonotonicTime::now_coarse() + raster_cache_trim_interval;
+    shared_svg_page_clients().for_each_live_value([](auto& client) {
+        for (auto& image : client.m_svg_image_data)
+            image.m_cached_rendered_frames.clear();
+    });
+}
+
 void SVGDecodedImageData::finalize()
 {
     Base::finalize();
@@ -356,6 +377,25 @@ Optional<Gfx::DecodedImageFrame> SVGDecodedImageData::current_frame(Gfx::IntSize
     auto decoded_frame = Gfx::DecodedImageFrame::create(*bitmap);
     if (decoded_frame.is_error())
         return {};
+
+    if (s_raster_cache_budget_expires_at.has_value() && MonotonicTime::now_coarse() >= *s_raster_cache_budget_expires_at)
+        s_raster_cache_budget_expires_at.clear();
+    if (s_raster_cache_budget_expires_at.has_value()) {
+        auto frame_bytes = decoded_frame.value().size_in_bytes();
+        if (frame_bytes > reduced_raster_cache_byte_budget)
+            return decoded_frame.release_value();
+
+        size_t cached_bytes = 0;
+        for (auto const& entry : m_cached_rendered_frames)
+            cached_bytes += entry.value.size_in_bytes();
+        VERIFY(cached_bytes <= reduced_raster_cache_byte_budget);
+
+        while (cached_bytes > reduced_raster_cache_byte_budget - frame_bytes) {
+            auto it = m_cached_rendered_frames.begin();
+            cached_bytes -= it->value.size_in_bytes();
+            m_cached_rendered_frames.remove(it);
+        }
+    }
 
     // Prevent the cache from growing too big.
     // FIXME: Evict least used entries.

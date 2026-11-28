@@ -695,18 +695,17 @@ ErrorOr<void> SessionStore::PersistedStorage::apply_tab_row_write(TabWrite const
     return {};
 }
 
-ErrorOr<void> SessionStore::PersistedStorage::apply_window_metadata(WindowMetadataWrite const& write)
+ErrorOr<void> SessionStore::PersistedStorage::apply_window_metadata(WindowMetadataWrite const& write, size_t first_changed_tab)
 {
-    i64 tab_ordinal = 0;
-    for (auto tab_id : write.tabs_in_order) {
+    for (size_t i = first_changed_tab; i < write.tabs_in_order.size(); ++i) {
+        auto tab_id = write.tabs_in_order[i];
         TRY(database->try_execute_bound_statement(statements.update_tab_placement, [&](auto& bind) -> ErrorOr<void> {
             TRY(bind("session_id"sv, write.id));
-            TRY(bind("tab_ordinal"sv, tab_ordinal));
+            TRY(bind("tab_ordinal"sv, index_as_i64(i)));
             TRY(bind("pinned"sv, i64 { write.pinned_tabs.contains(tab_id) ? 1 : 0 }));
             TRY(bind("id"sv, tab_id));
             return {};
         }));
-        ++tab_ordinal;
     }
 
     TRY(write_session_metadata(write.id, write.active_tab_index, write.activation_sequence));
@@ -764,7 +763,8 @@ ErrorOr<void> SessionStore::PersistedStorage::open_tab(OpenTabWrite const& write
             TRY(bind("current_used_step_index"sv, write.tab.current_used_step_index));
             return {};
         }));
-        return apply_window_metadata(write.window);
+        // tab_opened flushed the previous layout and the INSERT set the new tab's placement.
+        return apply_window_metadata(write.window, static_cast<size_t>(write.tab.tab_ordinal) + 1);
     });
 }
 

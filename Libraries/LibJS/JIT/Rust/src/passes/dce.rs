@@ -22,9 +22,10 @@ fn is_removable(op: &Op) -> bool {
     if matches!(op, Op::Phi | Op::Int32Binary { .. }) {
         return true;
     }
-    let properties = op.properties();
-    !op.is_control()
-        && !op.can_eager_exit()
+    let info = op.info();
+    let properties = info.properties;
+    !info.is_control
+        && info.exit_kind.is_none()
         && !properties.can_lazy_exit
         && !properties.allocates
         && properties.writes.is_empty()

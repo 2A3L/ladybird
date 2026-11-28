@@ -220,6 +220,9 @@ signals:
     void crash_overlay_changed();
     void image_overlay_unavailable();
     void urls_dropped(QList<QUrl> const&);
+#ifdef AK_OS_LINUX
+    void full_page_frame_available();
+#endif
 
 private:
     // ^RemoteView

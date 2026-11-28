@@ -203,6 +203,43 @@ describe("Array.prototype.sort", () => {
         Array.prototype.sort.call(obj);
     });
 
+    test("merges existing runs without sorting each run again", () => {
+        const length = 257;
+        const numbers = Array.from({ length }, (_, i) => (i + 173) % length);
+        let calls = 0;
+        numbers.sort((a, b) => {
+            ++calls;
+            return a - b;
+        });
+        expect(numbers).toEqual(Array.from({ length }, (_, i) => i));
+        expect(calls).toBeLessThan(2 * length);
+    });
+
+    test("preserves equal values in a long descending input", () => {
+        const objects = Array.from({ length: 96 }, (_, i) => ({
+            key: 47 - Math.floor(i / 2),
+            index: i,
+        }));
+        objects.sort((a, b) => a.key - b.key);
+        expect(objects.map(item => item.index)).toEqual(
+            Array.from({ length: 96 }, (_, i) => 94 - 2 * Math.floor(i / 2) + (i % 2))
+        );
+    });
+
+    test("stops comparing when a comparator throws during a long sort", () => {
+        const values = Array.from({ length: 257 }, (_, i) => (i * 17) % 257);
+        const original = values.slice();
+        let calls = 0;
+        expect(() =>
+            values.sort((a, b) => {
+                if (++calls === 300) throw new TypeError("stop sorting");
+                return a - b;
+            })
+        ).toThrowWithMessage(TypeError, "stop sorting");
+        expect(calls).toBe(300);
+        expect(values).toEqual(original);
+    });
+
     test("inconsistent comparators sort the way websites expect", () => {
         const numbers = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
         const reversed = numbers.toReversed();
@@ -213,6 +250,10 @@ describe("Array.prototype.sort", () => {
         expect(numbers.slice().sort(() => -1)).toEqual(reversed);
         expect(numbers.toSorted(() => 1)).toEqual(numbers);
         expect(numbers.toSorted(() => -1)).toEqual(reversed);
+
+        const longNumbers = Array.from({ length: 67 }, (_, i) => i);
+        expect(longNumbers.toSorted(() => 1)).toEqual(longNumbers);
+        expect(longNumbers.toSorted(() => -1)).toEqual(longNumbers.toReversed());
 
         // A comparator that returns a boolean never reports "less than".
         expect(reversed.slice().sort((a, b) => a > b)).toEqual(reversed);

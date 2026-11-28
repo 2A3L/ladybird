@@ -456,7 +456,7 @@ private:
         };
         ErrorOr<RunStart> record_run_start();
         ErrorOr<void> apply_tab_row_write(TabWrite const&);
-        ErrorOr<void> apply_window_metadata(WindowMetadataWrite const&);
+        ErrorOr<void> apply_window_metadata(WindowMetadataWrite const&, size_t first_changed_tab = 0);
         ErrorOr<void> insert_closed_unit_row(ClosedUnitWrite const&);
         ErrorOr<void> delete_tab_rows(SessionTabId);
         ErrorOr<Vector<RecoveredTab>> read_recovered_tabs(SessionWindowId);

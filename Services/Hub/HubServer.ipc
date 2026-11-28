@@ -321,4 +321,5 @@ endpoint HubServer
 
     view_keepass_context(u64 view_id) => (Optional<Web::HTML::CrossProcessId> document_id, String origin, ByteString profile)
     view_fill_keepass_credentials(u64 view_id, Web::HTML::CrossProcessId document_id, String origin, Core::AnonymousBuffer credentials) =|
+    ui_will_restore_session() =|
 }

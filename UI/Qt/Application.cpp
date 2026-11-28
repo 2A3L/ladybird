@@ -1769,6 +1769,14 @@ static WindowConfiguration window_configuration_for(SessionWindowGeometry const&
 BrowserWindow* Application::restore_previous_session(WindowConfiguration const& frontmost_window_configuration)
 {
     auto plan = session_store(WebView::IsPrivate::No).take_launch_plan();
+    if (plan.is_empty())
+        return nullptr;
+
+#ifdef LADYBIRD_HUB_IN_OWN_PROCESS
+    HubConnection::the().async_ui_will_restore_session();
+#else
+    hub().delay_spare_web_content_process_for_session_restore();
+#endif
 
     BrowserWindow* frontmost_window = nullptr;
     for (size_t i = 0; i < plan.size(); ++i) {

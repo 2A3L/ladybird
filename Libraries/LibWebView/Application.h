@@ -247,6 +247,7 @@ public:
 
     TabProcesses tab_processes() const;
     bool tabs_may_share_processes() const;
+    void delay_spare_web_content_process_for_session_restore();
     ErrorOr<NonnullRefPtr<WebContentPage>> open_page_for_new_tab(IsPrivate);
     struct ChildFrameWebContentProcess {
         NonnullRefPtr<WebContentClient> client;
@@ -290,6 +291,7 @@ public:
     void update_compositor_high_dynamic_range_surfaces();
     void update_compositor_display_metadata(Web::CompositorContextId, Optional<u64> display_id, double refresh_rate);
     void update_compositor_context_visibility(Web::CompositorContextId, Web::HTML::VisibilityState);
+    void retire_hidden_software_frames(Vector<Web::CompositorContextId>);
     void update_compositor_context_presents_from_cpu_memory(Web::CompositorContextId, bool);
     void update_compositor_context_scales_frames_to_fit(Web::CompositorContextId, bool);
 
@@ -477,6 +479,8 @@ protected:
     bool has_spare_web_content_process() const { return m_spare_web_content_process; }
 
 private:
+    friend class TabDiscarder;
+
     ErrorOr<void> create_profile(Optional<StringView> profile_name, Optional<StringView> profile_path, bool temporary_profile);
     void create_mach_port_server(ByteString const& profile_identity);
     void update_website_color_scheme();
@@ -485,6 +489,7 @@ private:
     ErrorOr<void> launch_services();
     static void install_experimental_cache_storage_store(BrowsingSession&);
     void launch_spare_web_content_process();
+    void close_spare_web_content_process();
     enum class CompositorLaunch {
         Now,
         WhenPlatformFeaturesAreCurrent,
@@ -619,6 +624,7 @@ private:
     virtual void did_close_devtools_connection() override;
 
     static Application* s_the;
+    static RefPtr<Core::Timer> s_spare_web_content_process_delay_timer;
 
     Optional<Profile> m_profile;
     LocalFileGrantPolicy m_local_file_grant_policy;

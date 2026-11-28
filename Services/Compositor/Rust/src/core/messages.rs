@@ -20,7 +20,8 @@ use libcompositing_rust::display_list::storage::DisplayListStorage;
 use libcompositing_rust::display_list::window::RecordedWindow;
 use libcompositing_rust::ipc_types::compositor_control_server::messages::{
     AwaitSynchronizedResizeFrame, BeginSynchronizedResize, CommitSynchronizedResize, CreateRemoteLayer,
-    CreateRemoteLayerResponse, DestroyRemoteLayer, SetRemoteLayerFit, ShowContextInRemoteLayer,
+    CreateRemoteLayerResponse, DestroyRemoteLayer, RetireHiddenSoftwareFrames, SetRemoteLayerFit,
+    ShowContextInRemoteLayer,
 };
 use libcompositing_rust::ipc_types::compositor_presentation_client::messages::DidNotDispatchInputEvent;
 use libcompositing_rust::ipc_types::compositor_presentation_server::messages::{
@@ -989,6 +990,11 @@ pub struct MessagesFromControl<'a> {
 }
 
 impl compositor_control_server::Stub for MessagesFromControl<'_> {
+    fn retire_hidden_software_frames(&mut self, message: RetireHiddenSoftwareFrames) -> Result<(), Misbehavior> {
+        self.core.retire_hidden_software_frames(&message.context_ids, self.now);
+        Ok(())
+    }
+
     fn create_remote_layer(&mut self, message: CreateRemoteLayer) -> Result<CreateRemoteLayerResponse, Misbehavior> {
         let host_handle = self
             .core

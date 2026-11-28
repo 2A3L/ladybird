@@ -571,6 +571,30 @@ impl BackingStores {
         retired_bitmap_ids
     }
 
+    /// Retires the single software frame left for a hidden context. The UI may still read that image, so its ID
+    /// will not be used again.
+    pub fn retire_latest_software_store(&mut self) -> Option<i32> {
+        if self.publication != StorePublication::Published
+            || self.stores.len() != 1
+            || self.latest_rendered_store_index != Some(0)
+            || self.is_rendering()
+        {
+            return None;
+        }
+        let store = &self.stores[0];
+        if store.state != StoreState::Presented
+            || store.shared_image_buffer.is_none()
+            || store.window_server_surface.is_some()
+            || store.shared_surface_is_in_use()
+        {
+            return None;
+        }
+        self.latest_rendered_store_index = None;
+        let bitmap_id = self.remove_store(0);
+        self.invalidate();
+        Some(bitmap_id)
+    }
+
     /// Whether a store that the hidden context does not keep is still rendered into, shown, or read by the window
     /// server, and can be retired once it no longer is.
     pub fn has_stores_left_to_retire_while_hidden(&self) -> bool {
@@ -859,6 +883,42 @@ mod tests {
         // The added store was not rendered into since it was added, so it goes at the next check.
         assert_eq!(stores.retire_idle_surplus_stores(), added.bitmap_ids);
         assert!(!stores.has_surplus_stores());
+    }
+
+    #[test]
+    fn a_hidden_software_frame_can_be_retired_and_its_id_never_reused() {
+        let (mut stores, _) = allocated(StorePublication::Published, false);
+        let (rendered, _) = stores.acquire_render_target().unwrap();
+        stores.complete_rendering(rendered);
+        assert_eq!(stores.retire_latest_software_store(), None);
+        assert!(stores.release_store(0));
+        stores.retire_stores_except_the_latest_rendered();
+
+        assert_eq!(stores.retire_latest_software_store(), Some(rendered));
+        assert!(stores.latest_rendered_surface().is_none());
+        assert!(!stores.release_store(rendered));
+        let allocation = stores
+            .resize_if_needed(VIEWPORT, false, StorePublication::Published)
+            .unwrap();
+        stores.allocate(allocation, StorePublication::Published, false, &mut factory(None));
+        let (next, _) = stores.acquire_render_target().unwrap();
+        assert!(next > rendered);
+        stores.complete_rendering(next);
+        assert_eq!(
+            stores.latest_rendered_surface().map(|surface| surface.size()),
+            Some(VIEWPORT)
+        );
+    }
+
+    #[test]
+    fn a_hidden_gpu_frame_keeps_its_final_store() {
+        let (mut stores, _) = allocated(StorePublication::Published, true);
+        let (rendered, _) = stores.acquire_render_target().unwrap();
+        stores.complete_rendering(rendered);
+        assert!(stores.release_store(0));
+        stores.retire_stores_except_the_latest_rendered();
+        assert_eq!(stores.retire_latest_software_store(), None);
+        assert!(stores.latest_rendered_surface().is_some());
     }
 
     #[test]

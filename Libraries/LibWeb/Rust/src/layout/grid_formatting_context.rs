@@ -3612,11 +3612,9 @@ impl<'pass> GridFormattingContext<'pass> {
         if start >= end {
             return false;
         }
-        tracks[start..end].iter().any(|track| {
-            track.min_sizing.is_intrinsic(available)
-                || track.max_sizing.is_intrinsic(available)
-                || (track.max_sizing.flex_factor().is_some() && !matches!(available, AvailableSize::Definite(_)))
-        })
+        tracks[start..end]
+            .iter()
+            .any(|track| track.uses_item_contributions(available))
     }
 
     fn item_contribution(&self, item: GridItem, axis: Axis, combined_track_count: usize) -> ItemContribution {
@@ -4115,9 +4113,19 @@ impl<'pass> GridFormattingContext<'pass> {
     }
 
     fn run_track_sizing(&mut self, axis: Axis) {
-        self.measure_track_sizing_contributions_ahead(axis);
+        let available = self.axis_available(axis);
+        // With no content-dependent tracks, the later sizing steps only need the available space and track sizes.
+        let mut contributions = if self
+            .axis_tracks(axis)
+            .iter()
+            .any(|track| track.uses_item_contributions(available))
+        {
+            self.measure_track_sizing_contributions_ahead(axis);
+            self.item_contributions_to_track_sizing(axis)
+        } else {
+            Vec::new()
+        };
         let mut tracks = self.interleaved_tracks(axis);
-        let mut contributions = self.item_contributions_to_track_sizing(axis);
         let style = self.container_style;
         let distribution_stretches = self.select_grid_axis(
             axis,
@@ -4127,7 +4135,6 @@ impl<'pass> GridFormattingContext<'pass> {
             ),
             matches!(style.align_content(), align_content::NORMAL | align_content::STRETCH),
         );
-        let available = self.axis_available(axis);
         debug_assert!(axis.is_column() || !available.is_intrinsic_sizing_constraint());
         run_track_sizing(
             &mut tracks,
@@ -6498,10 +6505,11 @@ fn distribute_growth_limits_for_span_group(
     }
 }
 
-pub(crate) fn resolve_intrinsic_track_sizes(
+fn resolve_intrinsic_track_sizes(
     tracks: &mut [Track<'_>],
     items: &mut [ItemContribution],
     available: AvailableSize,
+    has_flexible: bool,
 ) {
     // https://www.w3.org/TR/css-grid-2/#algo-content
     // 12.5. Resolve Intrinsic Track Sizes
@@ -6650,12 +6658,17 @@ pub(crate) fn resolve_intrinsic_track_sizes(
         LimitedMaxContent,
         MaxContent,
     }
-    for phase in [
-        FlexibleMinimumPhase::Intrinsic,
-        FlexibleMinimumPhase::MinContent,
-        FlexibleMinimumPhase::LimitedMaxContent,
-        FlexibleMinimumPhase::MaxContent,
-    ] {
+    let phases: &[_] = if has_flexible && !items.is_empty() {
+        &[
+            FlexibleMinimumPhase::Intrinsic,
+            FlexibleMinimumPhase::MinContent,
+            FlexibleMinimumPhase::LimitedMaxContent,
+            FlexibleMinimumPhase::MaxContent,
+        ]
+    } else {
+        &[]
+    };
+    for &phase in phases {
         if matches!(phase, FlexibleMinimumPhase::LimitedMaxContent) && available != AvailableSize::MaxContent {
             continue;
         }
@@ -6886,7 +6899,7 @@ pub(crate) fn run_track_sizing<MaximumSize>(
     // 1. Initialize Track Sizes
     let has_flexible = initialize_track_sizes(tracks, available);
     // 2. Resolve Intrinsic Track Sizes
-    resolve_intrinsic_track_sizes(tracks, items, available);
+    resolve_intrinsic_track_sizes(tracks, items, available, has_flexible);
     // 3. Maximize Tracks
     let saved_base_sizes = tracks
         .iter()
@@ -7449,6 +7462,12 @@ pub(crate) struct Track<'pass> {
 }
 
 impl<'pass> Track<'pass> {
+    fn uses_item_contributions(&self, available: AvailableSize) -> bool {
+        self.min_sizing.is_intrinsic(available)
+            || self.max_sizing.is_intrinsic(available)
+            || (self.max_sizing.flex_factor().is_some() && !matches!(available, AvailableSize::Definite(_)))
+    }
+
     pub(crate) fn fixed(base_size: CssPixels) -> Self {
         Self {
             min_sizing: TrackSizingFunction::FixedPx(base_size),
@@ -7670,8 +7689,8 @@ mod tests {
     fn intrinsic_distribution_keeps_span_groups_independent() {
         let mut tracks = [Track::auto(); 3];
         let mut items = [contribution(0..1, 10), contribution(1..3, 40), contribution(0..3, 80)];
-        initialize_track_sizes(&mut tracks, AvailableSize::MaxContent);
-        resolve_intrinsic_track_sizes(&mut tracks, &mut items, AvailableSize::MaxContent);
+        let has_flexible = initialize_track_sizes(&mut tracks, AvailableSize::MaxContent);
+        resolve_intrinsic_track_sizes(&mut tracks, &mut items, AvailableSize::MaxContent, has_flexible);
         assert_eq!(tracks.map(|track| track.base_size.to_int()), [20, 30, 30]);
         for track in &tracks {
             assert_eq!(track.growth_limit, Some(track.base_size));
@@ -7750,8 +7769,8 @@ mod tests {
                 ];
                 tracks[2].min_sizing = TrackSizingFunction::MinContent;
                 tracks[4].max_sizing = TrackSizingFunction::Flex(0.5);
-                initialize_track_sizes(&mut tracks, available);
-                resolve_intrinsic_track_sizes(&mut tracks, &mut items, available);
+                let has_flexible = initialize_track_sizes(&mut tracks, available);
+                resolve_intrinsic_track_sizes(&mut tracks, &mut items, available, has_flexible);
                 let sizes = tracks.map(|track| (track.base_size, track.growth_limit));
                 if let Some(expected) = expected {
                     assert_eq!(sizes, expected);

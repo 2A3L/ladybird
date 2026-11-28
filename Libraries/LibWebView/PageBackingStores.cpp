@@ -121,9 +121,21 @@ void PageBackingStores::retire(ReadonlySpan<i32> bitmap_ids)
 {
     if (m_refuses_backing_stores)
         return;
+    if (m_has_usable_front_bitmap && bitmap_ids.contains_slow(m_front_bitmap.id)) {
+        PageBackingStores::keep_front_as_backup();
+        m_front_bitmap = {};
+        m_has_usable_front_bitmap = false;
+    }
     m_other_bitmaps.remove_all_matching([&](auto const& bitmap) {
         return bitmap_ids.contains_slow(bitmap.id);
     });
+}
+
+void PageBackingStores::replace_backup_bitmap(NonnullOwnPtr<Gfx::SharedImageBuffer> image)
+{
+    VERIFY(m_has_backup);
+    m_backup.id = compact_backup_bitmap_id;
+    m_backup.shared_image_buffer = move(image);
 }
 
 PageBackingStores::PresentationResult PageBackingStores::present(i32 bitmap_id, Gfx::IntSize size, double device_pixel_ratio)
@@ -153,6 +165,7 @@ void PageBackingStores::keep_front_as_backup()
 {
     if (!m_has_usable_front_bitmap)
         return;
+    m_backup.id = -1;
     m_backup.shared_image_buffer = move(m_front_bitmap.shared_image_buffer);
     m_backup.last_painted_size = m_front_bitmap.last_painted_size;
     m_backup.last_painted_device_pixel_ratio = m_front_bitmap.last_painted_device_pixel_ratio;

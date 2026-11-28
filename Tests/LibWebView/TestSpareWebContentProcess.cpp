@@ -153,3 +153,28 @@ TEST_CASE(spare_is_not_taken_once_its_connection_closed)
     process_manager.on_process_exited = move(handle_exit);
     EXPECT(second_tab->page().is_open());
 }
+
+TEST_CASE(session_restore_delays_the_spare_without_blocking_tabs)
+{
+    Test::HeadlessTestEnvironment environment { "TestSpareWebContentProcess"sv };
+    auto app = TRY_OR_FAIL(environment.create_application<TestApplication>());
+    auto theme = load_theme();
+    auto& event_loop = Core::EventLoop::current();
+
+    app->delay_spare_web_content_process_for_session_restore();
+    auto first_tab = WebView::HeadlessWebView::create(theme, { 800, 600 });
+    event_loop.pump(Core::EventLoop::WaitMode::PollForEvents);
+    EXPECT(!app->has_spare_web_content_process());
+
+    auto second_tab = WebView::HeadlessWebView::create(theme, { 800, 600 });
+    event_loop.pump(Core::EventLoop::WaitMode::PollForEvents);
+    EXPECT(first_tab->page().is_open());
+    EXPECT(second_tab->page().is_open());
+    EXPECT_NE(first_tab->web_content_pid(), second_tab->web_content_pid());
+    EXPECT(!app->has_spare_web_content_process());
+
+    auto deadline = Core::Timer::create_single_shot(AK::Duration::from_seconds(8), [] { });
+    deadline->start();
+    event_loop.spin_until([&] { return app->has_spare_web_content_process() || !deadline->is_active(); });
+    EXPECT(app->has_spare_web_content_process());
+}
