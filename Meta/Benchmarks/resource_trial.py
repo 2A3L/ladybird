@@ -167,6 +167,7 @@ def browser_arguments(browser, directory):
         (directory / "user.js").write_text(
             'user_pref("browser.shell.checkDefaultBrowser", false);\n'
             'user_pref("browser.aboutwelcome.enabled", false);\n'
+            'user_pref("datareporting.policy.firstRunURL", "");\n'
             'user_pref("browser.sessionstore.resume_from_crash", false);\n'
         )
         return ["--no-remote", "--profile", str(directory)]
@@ -192,7 +193,8 @@ def focus_last_tab(browser, count):
     window = wait_for(window_id, 3, "Missing browser window on Xvfb")
     subprocess.run(["xdotool", "windowsize", window, "1440", "900"], check=True)
     subprocess.run(["xdotool", "windowfocus", window], check=True)
-    subprocess.run(["xdotool", "key", "--clearmodifiers", "alt+9" if browser == "Firefox" else "ctrl+9"], check=True)
+    shortcut = {"Firefox": "alt+9", "Vivaldi": "ctrl+Page_Down"}.get(browser, "ctrl+9")
+    subprocess.run(["xdotool", "key", "--clearmodifiers", shortcut], check=True)
 
     def last_visible():
         title = subprocess.check_output(["xdotool", "getwindowname", window], text=True)
@@ -210,6 +212,12 @@ def measure(trial, group, process, browser, trace):
     wait_for(ready, 18, "Some requested pages did not load")
     verify_limits(group)
     focus_last_tab(browser, len(trial.tabs))
+    if browser in ("Firefox", "Vivaldi"):
+        def target_receipt():
+            with trial.condition:
+                return trial.events.get((len(trial.tabs), "visible"))
+
+        trace["foreground_receipt"] = wait_for(target_receipt, 3, "Final page did not report visibility")[-1]
     time.sleep(1)
 
     def sample_pressure():
