@@ -1410,9 +1410,9 @@ impl<'text> TextChunker<'text> {
                     can_break_at_current_position = self.is_at_line_break_opportunity();
                 }
 
-                let font_changes = !self.is_font_at_index(&self.expected_font_for(code_point), pending.font_index);
-
-                if font_changes
+                // The first code point already selected the chunk's font.
+                if self.current_index != pending.start
+                    && !self.is_font_at_index(&self.expected_font_for(code_point), pending.font_index)
                     && let Some(chunk) = self.try_commit_chunk_at_cursor(&pending, can_break_at_current_position)
                 {
                     return Some(chunk);
