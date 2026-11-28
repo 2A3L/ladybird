@@ -203,7 +203,7 @@ describe("Array.prototype.sort", () => {
         Array.prototype.sort.call(obj);
     });
 
-    test("merges existing runs without sorting each run again", () => {
+    test("merges two disjoint runs with few additional comparisons", () => {
         const length = 257;
         const numbers = Array.from({ length }, (_, i) => (i + 173) % length);
         let calls = 0;
@@ -212,7 +212,20 @@ describe("Array.prototype.sort", () => {
             return a - b;
         });
         expect(numbers).toEqual(Array.from({ length }, (_, i) => i));
-        expect(calls).toBeLessThan(2 * length);
+        expect(calls).toBeLessThan(length + 32);
+    });
+
+    test("keeps earlier equal keys first when merging long runs", () => {
+        const left = Array.from({ length: 64 }, (_, i) => ({ key: 16 + i, run: "left" }));
+        const right = Array.from({ length: 64 }, (_, i) => ({ key: i <= 16 ? i : i + 31, run: "right" }));
+        const values = left.concat(right);
+        const expected = [];
+        for (let key = 0; key <= right[63].key; ++key) {
+            expected.push(...values.filter(item => item.key === key));
+        }
+
+        values.sort((a, b) => a.key - b.key);
+        expect(values).toEqual(expected);
     });
 
     test("preserves equal values in a long descending input", () => {

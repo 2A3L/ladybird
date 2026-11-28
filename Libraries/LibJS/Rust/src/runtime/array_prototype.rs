@@ -2074,7 +2074,7 @@ fn merge_natural_runs(
         for run in (0..boundaries.len() - 1).step_by(2) {
             let middle = boundaries[run + 1];
             let end = if let Some(&end) = boundaries.get(run + 2) {
-                merge_ranges(items, scratch, compare_func, boundaries[run], middle, end)?;
+                merge_ranges::<true>(items, scratch, compare_func, boundaries[run], middle, end)?;
                 end
             } else {
                 middle
@@ -2101,10 +2101,30 @@ fn merge_sort_range(
     let middle = start + (end - start) / 2;
     merge_sort_range(items, scratch, compare_func, start, middle)?;
     merge_sort_range(items, scratch, compare_func, middle, end)?;
-    merge_ranges(items, scratch, compare_func, start, middle, end)
+    merge_ranges::<false>(items, scratch, compare_func, start, middle, end)
 }
 
-fn merge_ranges(
+// Find the end of a winning prefix with exponentially spaced probes, then bisect the remaining interval.
+fn gallop_prefix(values: &[Value], wins: impl Fn(Value) -> ThrowCompletionOr<bool>) -> ThrowCompletionOr<usize> {
+    let mut low = 0;
+    let mut high = 0;
+    while high < values.len() && wins(values[high])? {
+        low = high + 1;
+        high = high.saturating_add(low);
+    }
+    high = high.min(values.len());
+    while low < high {
+        let middle = low + (high - low) / 2;
+        if wins(values[middle])? {
+            low = middle + 1;
+        } else {
+            high = middle;
+        }
+    }
+    Ok(low)
+}
+
+fn merge_ranges<const GALLOP: bool>(
     items: &MarkedVec<'_, Value>,
     scratch: &MarkedVec<'_, Value>,
     compare_func: &dyn Fn(Value, Value) -> ThrowCompletionOr<f64>,
@@ -2115,6 +2135,9 @@ fn merge_ranges(
     scratch.clear();
     scratch.extend_from_slice(&items.values()[start..middle]);
 
+    const MIN_GALLOP: usize = 7;
+    let mut left_wins = 0;
+    let mut right_wins = 0;
     let left_len = middle - start;
     let mut left_index = 0;
     let mut right_index = middle;
@@ -2131,12 +2154,37 @@ fn merge_ranges(
         //          an inconsistent comparator such as `() => 1`, which then has to leave the order unchanged.
         if compare_func(y, x)? < 0.0 {
             items.set(output, y);
+            output += 1;
             right_index += 1;
+            left_wins = 0;
+            right_wins += 1;
+            if GALLOP && right_wins == MIN_GALLOP {
+                let count = gallop_prefix(&items.values()[right_index..end], |right| {
+                    Ok(compare_func(right, x)? < 0.0)
+                })?;
+                items.values_mut().copy_within(right_index..right_index + count, output);
+                right_index += count;
+                output += count;
+                right_wins = 0;
+            }
         } else {
             items.set(output, x);
+            output += 1;
             left_index += 1;
+            right_wins = 0;
+            left_wins += 1;
+            if GALLOP && left_wins == MIN_GALLOP {
+                let count = gallop_prefix(
+                    &scratch.values()[left_index..],
+                    |left| Ok(compare_func(y, left)? >= 0.0),
+                )?;
+                items.values_mut()[output..output + count]
+                    .copy_from_slice(&scratch.values()[left_index..left_index + count]);
+                left_index += count;
+                output += count;
+                left_wins = 0;
+            }
         }
-        output += 1;
     }
 
     if left_index < left_len {
