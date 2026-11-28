@@ -1,0 +1,121 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: BSD-2-Clause -->
+<meta charset="utf-8">
+<title>Tab resource lab</title>
+<style>
+body { margin: 20px; font: 16px sans-serif; max-width: 1000px }
+main article { border-bottom: 1px solid #ccc; padding: 8px }
+#grid { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 3px }
+#grid div { padding: 2px; min-height: 16px; background: #e7eef6 }
+#grid.changed div:nth-child(odd) { padding: 4px; background: #d1dfed }
+</style>
+<h1 id="label"></h1>
+<main id="root"></main>
+<script>
+const params = new URLSearchParams(location.search);
+const id = params.get("id");
+const tab = Number(params.get("tab"));
+const dashboard = params.get("kind") === "dashboard";
+document.title = "Tab resource lab " + tab;
+document.querySelector("#label").textContent = dashboard ? "Dashboard" : "Articles";
+const root = document.querySelector("#root");
+const send = (event, extra = {}) => fetch("/event?" + new URLSearchParams({id, tab, event, ...extra}));
+let model;
+let grid;
+let ctx;
+
+if (dashboard) {
+    const chart = document.createElement("canvas");
+    chart.width = 480;
+    chart.height = 190;
+    root.append(chart);
+    ctx = chart.getContext("2d");
+    grid = document.createElement("section");
+    grid.id = "grid";
+    root.append(grid);
+    model = Array.from({length: 3600}, (_, i) => ({name: "Record " + i, value: (i * 131) % 1703}));
+    update(0);
+} else {
+    const content = document.createDocumentFragment();
+    for (let i = 0; i < 220; ++i) {
+        const card = document.createElement("article");
+        const heading = document.createElement("h2");
+        heading.textContent = "Article " + i;
+        const body = document.createElement("p");
+        body.textContent = "This local document has repeated sections, text and links. ".repeat(5);
+        const link = document.createElement("a");
+        link.href = "#item-" + i;
+        link.textContent = "Read more";
+        card.append(heading, body, link);
+        content.append(card);
+    }
+    root.append(content);
+}
+
+function update(phase) {
+    const filtered = model.filter(row => (row.value + phase) % 7 < 3)
+        .sort((a, b) => b.value - a.value).slice(0, 240);
+    const cells = document.createDocumentFragment();
+    for (const row of filtered) {
+        const cell = document.createElement("div");
+        cell.textContent = row.name + " · " + row.value;
+        cells.append(cell);
+    }
+    grid.replaceChildren(cells);
+    grid.classList.toggle("changed");
+    const height = grid.getBoundingClientRect().height;
+    ctx.clearRect(0, 0, 480, 190);
+    ctx.fillStyle = "#3f678d";
+    for (let i = 0; i < 120; ++i)
+        ctx.fillRect(i * 4, 190 - filtered[i].value % 180, 3, filtered[i].value % 180);
+    return grid.children.length === 240 && height > 0;
+}
+
+async function dashboardJobs() {
+    let generation = 0;
+    while (true) {
+        try {
+            const reply = await fetch("/job?" + new URLSearchParams({id, tab, generation}), {cache: "no-store"});
+            if (reply.status === 204) continue;
+            const command = await reply.json();
+            generation = command.generation;
+            let completed = 0;
+            for (let i = 0; i < 6; ++i) {
+                await new Promise(resolve => setTimeout(resolve, 120));
+                if (Date.now() >= command.expiry_ms) break;
+                if (update((generation + i) * 73)) ++completed;
+            }
+            await send("done", {generation, completed});
+        } catch (error) {
+            await send("error", {reason: String(error)});
+            return;
+        }
+    }
+}
+
+addEventListener("load", () => {
+    send("loaded", {count: dashboard ? grid.children.length : root.children.length});
+    if (dashboard) dashboardJobs();
+    else if (params.get("scroll") === "1") scrollJob().catch(error => send("error", {reason: String(error)}));
+});
+document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) requestAnimationFrame(() => send("visible"));
+});
+
+async function scrollJob() {
+    const command = await fetch("/job?" + new URLSearchParams({id, tab, generation: 0}), {cache:"no-store"});
+    if (command.status !== 200) return;
+    const {generation} = await command.json();
+    if (document.hidden) { await send("error", {reason:"hidden reader"}); return; }
+    let steps = 0;
+    for (let i = 1; i <= 120; ++i) {
+        await new Promise(requestAnimationFrame);
+        const target = 16 * i;
+        scrollTo(0, target);
+        if (scrollY !== target || document.hidden) { await send("error", {reason:"scroll mismatch"}); return; }
+        ++steps;
+    }
+    await new Promise(requestAnimationFrame);
+    await send("done", {generation, completed:steps, offset:scrollY});
+}
+</script>

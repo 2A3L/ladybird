@@ -138,6 +138,12 @@ distinguish query variants from literal `@` characters in filenames; use
 artifact prefix when constructing the filter. No rerun command is suggested
 if the corresponding source file cannot be found.
 
+### Measuring browser CPU and memory on Linux
+
+Use [the browser resource benchmark](../Meta/Benchmarks/README.md) to compare two builds or browsers with a reproducible local workload and fresh profiles in Xvfb.
+The default is six paired blocks. Run both labels against the same build first to see how much RAM and CPU vary on the measurement host.
+The output directory contains the plan, individual receipts and paired summary. Pass the same explicit `--output` directory to resume an interrupted campaign.
+
 ### Running with Sanitizers
 
 CI runs host tests with Address Sanitizer and Undefined Sanitizer instrumentation enabled. These tools catch many
