@@ -802,8 +802,8 @@ pub(in crate::css::style) struct Projection {
     /// Each write since the last barrier, which whether a written row changes the committed
     /// generation is asked of at most once, as long as it is not written again.
     pending_change_scan: PendingChangeScan,
-    /// The elements whose rows were written since the last barrier or geometry read seal, whichever
-    /// came last: those whose changes the pending transaction has not yet been asked about.
+    /// The elements whose rows were written after the geometry read's sealed snapshot.
+    /// Without a sealed snapshot the primary journal is sufficient.
     written_since_seal: WrittenRows,
     /// The rows as the latest geometry read sealed them, where it sealed a change the next
     /// transaction has yet to take: the style change event a geometry read established without
@@ -963,7 +963,9 @@ impl Projection {
     /// Note that the row of `node`, at `slot`, is written in the transaction to come.
     fn note_written(&mut self, node: StyleNodeID, slot: usize) {
         self.written.insert(node, slot);
-        self.written_since_seal.insert(node, slot);
+        if self.sealed.is_some() {
+            self.written_since_seal.insert(node, slot);
+        }
     }
 
     /// The links of `node` as the last transaction committed them.
@@ -1119,10 +1121,8 @@ impl Projection {
         self.written_since_seal.reuse(written);
     }
 
-    /// Seal what was written so far for a geometry read that found none of it could move geometry:
-    /// [`Self::any_change_since_seal`] asks only about rows written after this.
-    /// The transaction a later style change event flushes the seal with takes the rows as they
-    /// are now, where they hold a change at all.
+    /// Keep the rows for the style change event a geometry read establishes without settling style.
+    /// If they hold any pending changes, [`Self::any_change_since_seal`] starts checking from this boundary.
     pub(in crate::css::style) fn seal_for_geometry_read(&mut self) {
         debug_assert!(!self.flushing_seal);
         self.forget_written_since_seal();
@@ -1149,13 +1149,14 @@ impl Projection {
         self.flushing_seal = false;
         self.sealed = None;
         self.hover.sealed = None;
+        self.forget_written_since_seal();
     }
 
     /// Drop the seal, for a transaction that takes everything written, sealed or not.
     pub(in crate::css::style) fn drop_seal(&mut self) {
-        if !self.flushing_seal {
-            self.sealed = None;
+        if !self.flushing_seal && self.sealed.take().is_some() {
             self.hover.sealed = None;
+            self.forget_written_since_seal();
         }
     }
 
@@ -1220,14 +1221,19 @@ impl Projection {
             && self.written_relations(node).is_some()
     }
 
-    /// Whether `test` holds for a change the rows written since the last barrier or seal make to
-    /// the committed generation, each said as [`Self::changes`] says a taken transaction's.
+    /// Whether `test` holds for a change since the last barrier or nonempty seal, comparing
+    /// the written rows to the committed generation as [`Self::changes`] does.
     pub(in crate::css::style) fn any_change_since_seal(
         &self,
         mut test: impl FnMut(StyleNodeID, ElementChange) -> bool,
     ) -> bool {
+        let written = if self.sealed.is_some() {
+            &self.written_since_seal
+        } else {
+            &self.written
+        };
         let mut changes = Vec::new();
-        self.written_since_seal.nodes.iter().any(|&node| {
+        written.nodes.iter().any(|&node| {
             let slot = node.element_slot();
             let (committed, now) = (self.committed.get(slot), self.rows.get(slot));
             let hovered = (self.hover.committed.contains(node), self.hover.placed.contains(&node));
@@ -2877,6 +2883,72 @@ mod tests {
         projection.set_attribute(element(3), HREF, HREF_VALUE, true);
         projection.commit();
         projection
+    }
+
+    #[test]
+    fn geometry_reads_find_pending_changes_without_a_seal() {
+        let mut projection = document();
+        let first = element(2);
+        let second = element(3);
+
+        projection.set_class(first, THEME, true);
+        assert!(projection.any_change_since_seal(|_, _| true));
+        projection.set_class(first, THEME, false);
+        projection.seal_for_geometry_read();
+        assert!(!projection.has_sealed_changes());
+        assert!(!projection.any_change_since_seal(|_, _| true));
+
+        projection.set_class(first, THEME, true);
+        assert!(projection.any_change_since_seal(|_, _| true));
+        projection.seal_for_geometry_read();
+        assert!(projection.has_sealed_changes());
+        assert!(!projection.any_change_since_seal(|_, _| true));
+
+        projection.set_class(second, THEME, true);
+        projection.drop_seal();
+        projection.commit();
+        assert!(projection.facts(first).unwrap().classes().contains(&THEME));
+        assert!(projection.facts(second).unwrap().classes().contains(&THEME));
+        assert!(!projection.has_pending_changes());
+    }
+
+    #[test]
+    fn flushing_a_geometry_seal_keeps_later_class_and_hover_changes_pending() {
+        let mut projection = document();
+        let root = element(1);
+        let first = element(2);
+        let second = element(3);
+        let third = element(4);
+        let hover_change = |node, change| node == first && change == ElementChange::State(StateFact::Hover);
+
+        projection.place_hover(&[first, root]);
+        assert!(projection.any_change_since_seal(hover_change));
+        projection.set_class(first, THEME, true);
+        projection.seal_for_geometry_read();
+        assert!(projection.has_sealed_changes());
+
+        projection.place_hover(&[second, root]);
+        projection.set_class(second, THEME, true);
+        projection.begin_flushing_seal();
+        projection.drop_seal();
+        projection.commit();
+        projection.set_class(third, THEME, true);
+        projection.end_flushing_seal();
+
+        assert!(projection.facts(first).unwrap().classes().contains(&THEME));
+        assert!(projection.facts(first).unwrap().states().contains(StateFact::Hover));
+        assert!(!projection.facts(second).unwrap().classes().contains(&THEME));
+        assert!(!projection.facts(second).unwrap().states().contains(StateFact::Hover));
+        assert!(!projection.facts(third).unwrap().classes().contains(&THEME));
+        assert!(projection.has_pending_changes());
+        assert!(projection.any_change_since_seal(hover_change));
+
+        projection.commit();
+        assert!(!projection.facts(first).unwrap().states().contains(StateFact::Hover));
+        assert!(projection.facts(second).unwrap().classes().contains(&THEME));
+        assert!(projection.facts(second).unwrap().states().contains(StateFact::Hover));
+        assert!(projection.facts(third).unwrap().classes().contains(&THEME));
+        assert!(!projection.has_pending_changes());
     }
 
     #[test]
