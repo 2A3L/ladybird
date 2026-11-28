@@ -1016,6 +1016,41 @@ TEST_CASE(test_apng_idat_not_affecting_next_frame)
     EXPECT_EQ(frame.image->size(), Gfx::IntSize(100, 100));
 }
 
+TEST_CASE(test_apng_restores_previous_region)
+{
+    auto file = TRY_OR_FAIL(Core::MappedFile::map(TEST_INPUT("png/apng-restore-previous.png"sv)));
+    auto decoder = TRY_OR_FAIL(Gfx::PNGImageDecoderPlugin::create(file->bytes()));
+    EXPECT(decoder->is_animated());
+    EXPECT_EQ(decoder->frame_count(), 5u);
+    EXPECT_EQ(decoder->loop_count(), 2u);
+
+    auto initial = TRY_OR_FAIL(decoder->frame(0));
+    auto source = TRY_OR_FAIL(decoder->frame(1));
+    auto over = TRY_OR_FAIL(decoder->frame(2));
+    auto background = TRY_OR_FAIL(decoder->frame(3));
+    auto final = TRY_OR_FAIL(decoder->frame(4));
+
+    EXPECT_EQ(initial.duration, 10);
+    EXPECT_EQ(source.duration, 20);
+    EXPECT_EQ(over.duration, 30);
+    EXPECT_EQ(background.duration, 40);
+    EXPECT_EQ(final.duration, 50);
+    EXPECT_EQ(source.image->get_pixel(0, 0), Gfx::Color(8, 32, 80));
+    EXPECT_EQ(source.image->get_pixel(1, 1), Gfx::Color::NamedColor::Transparent);
+    EXPECT_EQ(source.image->get_pixel(2, 1), Gfx::Color(255, 0, 0, 128));
+    EXPECT_EQ(over.image->get_pixel(1, 1), Gfx::Color(0, 0, 255, 128));
+    EXPECT_EQ(over.image->get_pixel(2, 1), Gfx::Color(128, 127, 0));
+
+    for (int y = 1; y <= 2; ++y) {
+        for (int x = 1; x <= 2; ++x)
+            EXPECT_EQ(background.image->get_pixel(x, y), initial.image->get_pixel(x, y));
+    }
+    EXPECT_EQ(background.image->get_pixel(3, 3), Gfx::Color(0, 255, 255));
+    EXPECT_EQ(final.image->get_pixel(3, 3), Gfx::Color::NamedColor::Transparent);
+    EXPECT_EQ(final.image->get_pixel(0, 3), Gfx::Color(255, 255, 255));
+    EXPECT_EQ(final.image->get_pixel(0, 0), Gfx::Color(8, 32, 80));
+}
+
 TEST_CASE(test_exif)
 {
     auto file = TRY_OR_FAIL(Core::MappedFile::map(TEST_INPUT("png/exif.png"sv)));

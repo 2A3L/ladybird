@@ -407,9 +407,19 @@ ErrorOr<size_t> PNGLoadingContext::read_frames(png_structp png_ptr, png_infop in
             if (!has_fcTL)
                 continue;
 
-            RefPtr<Bitmap> prev_output_buffer;
-            if (dispose_op == PNG_DISPOSE_OP_PREVIOUS) // Only actually clone if it's necessary
-                prev_output_buffer = TRY(output_buffer->clone());
+            IntRect restore_rect;
+            RefPtr<Bitmap> previous_region;
+            if (dispose_op == PNG_DISPOSE_OP_PREVIOUS) {
+                restore_rect = frame_rect.intersected(output_buffer->rect());
+                if (!restore_rect.is_empty()) {
+                    auto backup = TRY(Bitmap::create(output_buffer->format(), output_buffer->alpha_type(), restore_rect.size()));
+                    auto const row_size = static_cast<size_t>(restore_rect.width()) * sizeof(u32);
+                    auto const row_offset = static_cast<size_t>(restore_rect.left()) * sizeof(u32);
+                    for (int y = 0; y < restore_rect.height(); ++y)
+                        __builtin_memcpy(backup->scanline_u8(y), output_buffer->scanline_u8(restore_rect.top() + y) + row_offset, row_size);
+                    previous_region = move(backup);
+                }
+            }
 
             switch (blend_op) {
             case PNG_BLEND_OP_SOURCE:
@@ -437,7 +447,8 @@ ErrorOr<size_t> PNGLoadingContext::read_frames(png_structp png_ptr, png_infop in
                 break;
             case PNG_DISPOSE_OP_PREVIOUS:
                 // The frame's region of the output buffer is to be reverted to the previous contents before rendering the next frame.
-                copy_frame_pixels(*output_buffer, frame_rect.location(), *prev_output_buffer, frame_rect);
+                if (previous_region)
+                    copy_frame_pixels(*output_buffer, restore_rect.location(), *previous_region, previous_region->rect());
                 break;
             default:
                 VERIFY_NOT_REACHED();
