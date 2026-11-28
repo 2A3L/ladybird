@@ -166,7 +166,7 @@ ErrorOr<void> RequestServerManager::launch_process(RequestServerInstance& instan
 
     auto connection = TRY(connect_new_client(instance, instance.session(), RequestServer::SiteBinding::Unrestricted));
     auto transport = TRY(connection.handle.create_transport());
-    auto ui_client = make_ref_counted<Requests::RequestClient>(move(transport));
+    auto ui_client = make_ref_counted<Requests::RequestClient>(move(transport), connection.client_id);
     instance.m_ui_client = move(ui_client);
 
     return {};

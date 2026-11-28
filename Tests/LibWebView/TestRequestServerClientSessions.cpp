@@ -49,7 +49,9 @@ Vector<NonnullRefPtr<Requests::RequestClient>> s_clients;
 
 int client_id_of(Requests::RequestClient& client)
 {
-    return client.send_sync<Messages::RequestServer::GetClientId>()->client_id();
+    auto id = client.send_sync<Messages::RequestServer::GetClientId>()->client_id();
+    EXPECT_EQ(client.request_server_client_id(), id);
+    return id;
 }
 
 int connect_request_server_client(WebView::BrowsingSession& session)
