@@ -770,6 +770,10 @@ void BrowserWindow::restore_tabs(Vector<RestoredSessionTab> const& tabs, i64 act
     // every other tab goes in around it at its own index.
     auto active_index = static_cast<size_t>(clamp<i64>(active_tab_index, 0, static_cast<i64>(tabs.size()) - 1));
     create_restored_tab(tabs[active_index], 0, false);
+    if (tabs.size() == 1)
+        return;
+
+    auto deferred_tab_updates = m_tabs_container->defer_tab_updates();
     for (size_t i = 0; i < tabs.size(); ++i) {
         if (i != active_index)
             create_restored_tab(tabs[i], static_cast<int>(i), !tabs[i].pinned);
